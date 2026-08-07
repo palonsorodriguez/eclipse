@@ -4,6 +4,11 @@
 # Dependencias
 node_modules/
 
+# Next.js
+.next/
+out/
+*.tsbuildinfo
+
 # Sandcastle — runtime local
 .sandcastle/.env
 .sandcastle/logs/
