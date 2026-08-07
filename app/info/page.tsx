@@ -10,44 +10,93 @@ export const metadata: Metadata = {
 };
 
 const estiloSeccion: CSSProperties = {
-  marginTop: "3rem",
+  marginTop: "3.25rem",
 };
 
 const estiloTitulo: CSSProperties = {
-  fontSize: "1.4rem",
-  marginBottom: "0.75rem",
+  fontFamily: "var(--fuente-titulos), system-ui, sans-serif",
+  fontSize: "1.5rem",
+  fontWeight: 600,
+  color: "#ffd97a",
+  letterSpacing: "0.01em",
+  borderBottom: "1px solid rgba(255, 217, 122, 0.25)",
+  paddingBottom: "0.5rem",
+  marginBottom: "1rem",
 };
 
 const estiloSubtitulo: CSSProperties = {
-  fontSize: "1.05rem",
-  marginTop: "1.75rem",
+  fontFamily: "var(--fuente-titulos), system-ui, sans-serif",
+  fontSize: "1.1rem",
+  fontWeight: 600,
+  color: "#f3edda",
+  marginTop: "2rem",
   marginBottom: "0.5rem",
-  opacity: 0.9,
 };
 
 const estiloAviso: CSSProperties = {
-  border: "1px solid rgba(255, 200, 120, 0.45)",
-  background: "rgba(255, 200, 120, 0.08)",
+  border: "1px solid rgba(255, 176, 92, 0.7)",
+  borderLeft: "4px solid #ffb05c",
+  background: "rgba(255, 176, 92, 0.12)",
   borderRadius: "0.5rem",
   padding: "1rem 1.25rem",
+  color: "#f7edd8",
+  fontSize: "1.02rem",
+};
+
+// Las negritas del texto van en ámbar suave en vez de blanco puro: destacan
+// sin convertir cada párrafo en un damero de contraste.
+const estiloDestacado: CSSProperties = {
+  color: "#ffe1a1",
+  fontWeight: 600,
+};
+
+const estiloEnlace: CSSProperties = {
+  color: "#ffd97a",
+  textDecorationColor: "rgba(255, 217, 122, 0.5)",
+  textUnderlineOffset: "3px",
 };
 
 export default function Info() {
   return (
     <main
+      className="pagina-info"
       style={{
-        maxWidth: "42rem",
+        maxWidth: "40rem",
         margin: "0 auto",
         padding: "3rem 1.5rem 5rem",
-        lineHeight: 1.65,
+        lineHeight: 1.7,
+        fontSize: "1.04rem",
       }}
     >
-      <Link href="/" style={{ color: "#ffe9a8", fontSize: "0.95rem" }}>
+      <style>{`
+        .pagina-info strong { color: ${estiloDestacado.color}; font-weight: 600; }
+        .pagina-info a {
+          color: ${estiloEnlace.color};
+          text-decoration-color: rgba(255, 217, 122, 0.5);
+          text-underline-offset: 3px;
+        }
+        .pagina-info a:hover { text-decoration-color: #ffd97a; }
+        .pagina-info ul { padding-left: 1.25rem; }
+        .pagina-info li { margin-bottom: 0.6rem; }
+        .pagina-info li::marker { color: #ffd97a; }
+        .pagina-info p { margin: 0.85rem 0; }
+      `}</style>
+      <Link href="/" style={{ color: "#ffd97a", fontSize: "0.95rem" }}>
         ← Volver al simulador
       </Link>
 
-      <h1 style={{ fontSize: "1.9rem", marginTop: "1.5rem" }}>
-        El eclipse del 12 de agosto de 2026
+      <h1
+        style={{
+          fontFamily: "var(--fuente-titulos), system-ui, sans-serif",
+          fontSize: "2.1rem",
+          fontWeight: 700,
+          color: "#f6f3ff",
+          marginTop: "1.5rem",
+          lineHeight: 1.25,
+        }}
+      >
+        El eclipse del{" "}
+        <span style={{ color: "#ffd97a" }}>12 de agosto de 2026</span>
       </h1>
 
       <section style={estiloSeccion}>
