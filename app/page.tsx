@@ -1,3 +1,5 @@
+import VistaCielo from "./components/VistaCielo";
+
 export default function Home() {
   return (
     <main
@@ -32,6 +34,7 @@ export default function Home() {
       <p style={{ opacity: 0.6 }}>
         Totalidad sobre España: 20:26–20:33 (hora peninsular). En construcción.
       </p>
+      <VistaCielo />
     </main>
   );
 }
