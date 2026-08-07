@@ -3,6 +3,7 @@
 import { useState } from "react";
 import BuscadorMunicipio from "./components/BuscadorMunicipio";
 import PanelCircunstancias from "./components/PanelCircunstancias";
+import VistaCielo from "./components/VistaCielo";
 import type { Municipio } from "@/lib/municipios";
 
 export default function Home() {
@@ -56,6 +57,11 @@ export default function Home() {
       <p style={{ opacity: 0.6 }}>
         Totalidad sobre España: 20:26–20:33 (hora peninsular). En construcción.
       </p>
+      <VistaCielo
+        observador={
+          observador ? { lat: observador.lat, lon: observador.lon } : undefined
+        }
+      />
     </main>
   );
 }
