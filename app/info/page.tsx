@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import type { CSSProperties } from "react";
 import Link from "next/link";
+import { VENTANA_TOTALIDAD } from "@/lib/eclipse-2026";
 
 export const metadata: Metadata = {
   title: "Información y seguridad — Eclipse del 12 de agosto de 2026",
@@ -8,23 +9,23 @@ export const metadata: Metadata = {
     "Qué pasa el 12 de agosto de 2026, cómo observar el eclipse sin dañarte la vista y de dónde salen los datos de la app.",
 };
 
-const section: CSSProperties = {
+const estiloSeccion: CSSProperties = {
   marginTop: "3rem",
 };
 
-const heading: CSSProperties = {
+const estiloTitulo: CSSProperties = {
   fontSize: "1.4rem",
   marginBottom: "0.75rem",
 };
 
-const subheading: CSSProperties = {
+const estiloSubtitulo: CSSProperties = {
   fontSize: "1.05rem",
   marginTop: "1.75rem",
   marginBottom: "0.5rem",
   opacity: 0.9,
 };
 
-const aviso: CSSProperties = {
+const estiloAviso: CSSProperties = {
   border: "1px solid rgba(255, 200, 120, 0.45)",
   background: "rgba(255, 200, 120, 0.08)",
   borderRadius: "0.5rem",
@@ -49,8 +50,8 @@ export default function Info() {
         El eclipse del 12 de agosto de 2026
       </h1>
 
-      <section style={section}>
-        <h2 style={heading}>Qué va a pasar</h2>
+      <section style={estiloSeccion}>
+        <h2 style={estiloTitulo}>Qué va a pasar</h2>
         <p>
           El <strong>12 de agosto de 2026</strong>, al atardecer, la Luna se
           interpondrá entre el Sol y España. Es el primer eclipse solar total
@@ -61,30 +62,33 @@ export default function Info() {
           ancho donde el Sol queda tapado por completo— entra por{" "}
           <strong>Galicia</strong> y cruza el país en diagonal hasta{" "}
           <strong>Baleares</strong>. Dentro de ella la Totalidad ocurre entre
-          las <strong>20:26</strong> y las <strong>20:33</strong>{" "}
-          aproximadamente (hora peninsular), y en cada municipio dura poco menos
-          de dos minutos. Fuera de la franja el eclipse es parcial: el Sol se ve
-          como una media luna, pero nunca desaparece del todo.
+          las <strong>{VENTANA_TOTALIDAD.inicio}</strong> y las{" "}
+          <strong>{VENTANA_TOTALIDAD.fin}</strong> aproximadamente (hora
+          peninsular). Cuánto dura depende de dónde estés: algo menos de dos
+          minutos en el centro de la banda, y cada vez menos hacia los bordes,
+          hasta quedarse en unos pocos segundos. Fuera de la Franja de totalidad
+          el eclipse es parcial: el Sol se ve como una media luna, pero nunca
+          desaparece del todo.
         </p>
         <p>
-          Es un eclipse vespertino y con el Sol muy bajo: unos 12–13° sobre el
+          Es un eclipse vespertino y con el Sol muy bajo: unos 12° sobre el
           horizonte en Galicia y apenas 2° en Baleares. Por eso hace falta{" "}
           <strong>horizonte oeste despejado</strong> —sin montañas, edificios ni
           nubes bajas— para llegar a verlo.
         </p>
       </section>
 
-      <section style={section}>
-        <h2 style={heading}>Cómo observarlo con seguridad</h2>
+      <section style={estiloSeccion}>
+        <h2 style={estiloTitulo}>Cómo observarlo con seguridad</h2>
 
-        <p style={aviso}>
+        <p style={estiloAviso}>
           <strong>Nunca mires al Sol sin protección homologada</strong>, ni
           siquiera unos segundos y aunque esté casi tapado por la Luna. La
           retina no duele: el daño se produce sin que lo notes y puede ser
           permanente.
         </p>
 
-        <h3 style={subheading}>Sí sirve</h3>
+        <h3 style={estiloSubtitulo}>Sí sirve</h3>
         <ul>
           <li>
             Gafas de eclipse certificadas <strong>ISO 12312-2</strong>, sin
@@ -99,13 +103,14 @@ export default function Info() {
           </li>
         </ul>
 
-        <h3 style={subheading}>No sirve</h3>
+        <h3 style={estiloSubtitulo}>No sirve</h3>
         <p>
           No valen las <strong>gafas de sol</strong> (por muchas que
           superpongas), las <strong>radiografías</strong>, los{" "}
           <strong>cristales ahumados</strong>, los filtros fotográficos ni los
-          CD. Dejan pasar infrarrojo y ultravioleta de sobra para quemar la
-          retina.
+          CD. Dejan pasar muchísima más luz visible e infrarroja de la que la
+          retina aguanta: atenúan el deslumbramiento, que es lo que te avisa,
+          pero no el daño.
         </p>
         <p>
           Tampoco mires por prismáticos, telescopio o cámara con las gafas de
@@ -113,7 +118,7 @@ export default function Info() {
           instrumentos necesitan su propio filtro solar delante del objetivo.
         </p>
 
-        <h3 style={subheading}>La única excepción: la Totalidad</h3>
+        <h3 style={estiloSubtitulo}>La única excepción: la Totalidad</h3>
         <p>
           Dentro de la Franja de totalidad, y{" "}
           <strong>solo durante la Totalidad</strong> —entre los contactos C2 y
@@ -123,18 +128,21 @@ export default function Info() {
         </p>
         <p>
           <strong>Fuera de la Franja de totalidad</strong> esa excepción no
-          existe en ningún momento: aunque el oscurecimiento llegue al 99%, el
+          existe en ningún momento: aunque el Oscurecimiento llegue al 99%, el
           trozo de Sol que queda basta para dañar la vista. Si no sabes si tu
           municipio está dentro, no te la juegues y no te quites las gafas.
         </p>
       </section>
 
-      <section style={section}>
-        <h2 style={heading}>Fuentes y créditos</h2>
+      <section style={estiloSeccion}>
+        <h2 style={estiloTitulo}>Fuentes y créditos</h2>
         <p>
-          Los horarios y el oscurecimiento que muestra esta app se{" "}
-          <strong>calculan</strong> para cada Observador a partir de efemérides;
-          no están copiados de tablas de prensa.
+          La app está en construcción. Los horarios y el Oscurecimiento que
+          llegue a mostrar se <strong>calculan</strong> para cada Observador a
+          partir de efemérides; no se copian de tablas de prensa. Las cifras
+          generales de esta página (la ventana de Totalidad, el ancho de la
+          franja, las alturas del Sol) son las que publica el IGN para el
+          conjunto de España.
         </p>
         <ul>
           <li>

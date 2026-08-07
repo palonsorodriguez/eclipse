@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { VENTANA_TOTALIDAD } from "@/lib/eclipse-2026";
 
 export default function Home() {
   return (
@@ -32,12 +33,10 @@ export default function Home() {
         España.
       </p>
       <p style={{ opacity: 0.6 }}>
-        Totalidad sobre España: 20:26–20:33 (hora peninsular). En construcción.
+        Totalidad sobre España: {VENTANA_TOTALIDAD.inicio}–
+        {VENTANA_TOTALIDAD.fin} (hora peninsular). En construcción.
       </p>
-      <Link
-        href="/info"
-        style={{ color: "#ffe9a8", fontSize: "1.05rem" }}
-      >
+      <Link href="/info" style={{ color: "#ffe9a8", fontSize: "1.05rem" }}>
         Cómo verlo sin dañarte la vista, y de dónde salen los datos
       </Link>
     </main>
