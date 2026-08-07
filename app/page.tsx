@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import BuscadorMunicipio from "./components/BuscadorMunicipio";
+import PanelCircunstancias from "./components/PanelCircunstancias";
 import type { Municipio } from "@/lib/municipios";
 
 export default function Home() {
@@ -51,6 +52,7 @@ export default function Home() {
           Elige un municipio para situar al Observador.
         </p>
       )}
+      {observador && <PanelCircunstancias observador={observador} />}
       <p style={{ opacity: 0.6 }}>
         Totalidad sobre España: 20:26–20:33 (hora peninsular). En construcción.
       </p>
