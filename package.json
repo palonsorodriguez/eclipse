@@ -7,12 +7,15 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
+    "build:municipios": "tsx scripts/build-municipios.ts",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "sandcastle": "tsx ./.sandcastle/main.ts"
   },
   "devDependencies": {
     "@ai-hero/sandcastle": "^0.10.0",
+    "@types/d3-contour": "^3.0.6",
+    "@types/geojson": "^7946.0.16",
     "@types/node": "^22.10.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
@@ -22,6 +25,8 @@
     "zod": "^4.1.1"
   },
   "dependencies": {
+    "astronomy-engine": "^2.1.19",
+    "d3-contour": "^4.0.2",
     "next": "^16.3.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"

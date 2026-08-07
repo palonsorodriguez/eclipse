@@ -1,0 +1,309 @@
+{
+  "metodo": "Centro: mínimo de la separación angular topocéntrica Sol–Luna sobre la superficie (donde el eje de la sombra corta el suelo). Contorno: haz de 32 rumbos desde el centro y bisección de la distancia a la que el Oscurecimiento instantáneo deja de ser 1; semieje mayor/menor = radio máximo/mínimo, orientación = rumbo del radio máximo (grados desde el norte, mod 180, cuantizada a pasos de 11,25°). Los radios se buscan hasta 600 km: cerca de la puesta de sol la sombra es rasante y el semieje mayor queda recortado a ese tope. En el último instante la umbra roza el terminador y el centro deja de avanzar hacia el este. Calculado con lib/eclipse-engine (astronomy-engine).",
+  "instantes": [
+    {
+      "t": "2026-08-12T18:20:00.000Z",
+      "centro": {
+        "lat": 48.1447,
+        "lon": -12.9922
+      },
+      "semiejeMayorKm": 216.9,
+      "semiejeMenorKm": 62.5,
+      "orientacionGrados": 90
+    },
+    {
+      "t": "2026-08-12T18:20:30.000Z",
+      "centro": {
+        "lat": 47.8713,
+        "lon": -12.6758
+      },
+      "semiejeMayorKm": 219.6,
+      "semiejeMenorKm": 62.3,
+      "orientacionGrados": 90
+    },
+    {
+      "t": "2026-08-12T18:21:00.000Z",
+      "centro": {
+        "lat": 47.5979,
+        "lon": -12.3516
+      },
+      "semiejeMayorKm": 221.9,
+      "semiejeMenorKm": 62.3,
+      "orientacionGrados": 90
+    },
+    {
+      "t": "2026-08-12T18:21:30.000Z",
+      "centro": {
+        "lat": 47.3166,
+        "lon": -12.0039
+      },
+      "semiejeMayorKm": 224,
+      "semiejeMenorKm": 62.3,
+      "orientacionGrados": 90
+    },
+    {
+      "t": "2026-08-12T18:22:00.000Z",
+      "centro": {
+        "lat": 47.0354,
+        "lon": -11.6562
+      },
+      "semiejeMayorKm": 226.6,
+      "semiejeMenorKm": 62,
+      "orientacionGrados": 90
+    },
+    {
+      "t": "2026-08-12T18:22:30.000Z",
+      "centro": {
+        "lat": 46.7502,
+        "lon": -11.293
+      },
+      "semiejeMayorKm": 229,
+      "semiejeMenorKm": 62,
+      "orientacionGrados": 90
+    },
+    {
+      "t": "2026-08-12T18:23:00.000Z",
+      "centro": {
+        "lat": 46.4611,
+        "lon": -10.9141
+      },
+      "semiejeMayorKm": 233.1,
+      "semiejeMenorKm": 61.7,
+      "orientacionGrados": 101.3
+    },
+    {
+      "t": "2026-08-12T18:23:30.000Z",
+      "centro": {
+        "lat": 46.1721,
+        "lon": -10.5312
+      },
+      "semiejeMayorKm": 241.3,
+      "semiejeMenorKm": 61.4,
+      "orientacionGrados": 101.3
+    },
+    {
+      "t": "2026-08-12T18:24:00.000Z",
+      "centro": {
+        "lat": 45.8752,
+        "lon": -10.125
+      },
+      "semiejeMayorKm": 249.8,
+      "semiejeMenorKm": 61.4,
+      "orientacionGrados": 101.3
+    },
+    {
+      "t": "2026-08-12T18:24:30.000Z",
+      "centro": {
+        "lat": 45.5744,
+        "lon": -9.6992
+      },
+      "semiejeMayorKm": 258.8,
+      "semiejeMenorKm": 61.1,
+      "orientacionGrados": 101.3
+    },
+    {
+      "t": "2026-08-12T18:25:00.000Z",
+      "centro": {
+        "lat": 45.2697,
+        "lon": -9.2617
+      },
+      "semiejeMayorKm": 269.7,
+      "semiejeMenorKm": 60.8,
+      "orientacionGrados": 101.3
+    },
+    {
+      "t": "2026-08-12T18:25:30.000Z",
+      "centro": {
+        "lat": 44.9572,
+        "lon": -8.7969
+      },
+      "semiejeMayorKm": 281.1,
+      "semiejeMenorKm": 60.5,
+      "orientacionGrados": 101.3
+    },
+    {
+      "t": "2026-08-12T18:26:00.000Z",
+      "centro": {
+        "lat": 44.6408,
+        "lon": -8.3086
+      },
+      "semiejeMayorKm": 294.9,
+      "semiejeMenorKm": 60.2,
+      "orientacionGrados": 101.3
+    },
+    {
+      "t": "2026-08-12T18:26:30.000Z",
+      "centro": {
+        "lat": 44.3166,
+        "lon": -7.7969
+      },
+      "semiejeMayorKm": 310.7,
+      "semiejeMenorKm": 59.9,
+      "orientacionGrados": 101.3
+    },
+    {
+      "t": "2026-08-12T18:27:00.000Z",
+      "centro": {
+        "lat": 43.9885,
+        "lon": -7.2734
+      },
+      "semiejeMayorKm": 330.9,
+      "semiejeMenorKm": 59.6,
+      "orientacionGrados": 101.3
+    },
+    {
+      "t": "2026-08-12T18:27:30.000Z",
+      "centro": {
+        "lat": 43.6447,
+        "lon": -6.6875
+      },
+      "semiejeMayorKm": 352.6,
+      "semiejeMenorKm": 59.3,
+      "orientacionGrados": 101.3
+    },
+    {
+      "t": "2026-08-12T18:28:00.000Z",
+      "centro": {
+        "lat": 43.2971,
+        "lon": -6.082
+      },
+      "semiejeMayorKm": 381.3,
+      "semiejeMenorKm": 59,
+      "orientacionGrados": 101.3
+    },
+    {
+      "t": "2026-08-12T18:28:30.000Z",
+      "centro": {
+        "lat": 42.9299,
+        "lon": -5.418
+      },
+      "semiejeMayorKm": 416.5,
+      "semiejeMenorKm": 58.7,
+      "orientacionGrados": 101.3
+    },
+    {
+      "t": "2026-08-12T18:29:00.000Z",
+      "centro": {
+        "lat": 42.551,
+        "lon": -4.7031
+      },
+      "semiejeMayorKm": 463.6,
+      "semiejeMenorKm": 58.4,
+      "orientacionGrados": 101.3
+    },
+    {
+      "t": "2026-08-12T18:29:30.000Z",
+      "centro": {
+        "lat": 42.1526,
+        "lon": -3.9102
+      },
+      "semiejeMayorKm": 526.9,
+      "semiejeMenorKm": 57.9,
+      "orientacionGrados": 101.3
+    },
+    {
+      "t": "2026-08-12T18:30:00.000Z",
+      "centro": {
+        "lat": 41.719,
+        "lon": -2.9844
+      },
+      "semiejeMayorKm": 600,
+      "semiejeMenorKm": 57.6,
+      "orientacionGrados": 101.3
+    },
+    {
+      "t": "2026-08-12T18:30:30.000Z",
+      "centro": {
+        "lat": 41.2541,
+        "lon": -1.9492
+      },
+      "semiejeMayorKm": 600,
+      "semiejeMenorKm": 57.3,
+      "orientacionGrados": 101.3
+    },
+    {
+      "t": "2026-08-12T18:31:00.000Z",
+      "centro": {
+        "lat": 40.7541,
+        "lon": -0.8164
+      },
+      "semiejeMayorKm": 600,
+      "semiejeMenorKm": 56.7,
+      "orientacionGrados": 101.3
+    },
+    {
+      "t": "2026-08-12T18:31:30.000Z",
+      "centro": {
+        "lat": 40.0627,
+        "lon": 1.1094
+      },
+      "semiejeMayorKm": 583.4,
+      "semiejeMenorKm": 55.8,
+      "orientacionGrados": 101.3
+    },
+    {
+      "t": "2026-08-12T18:32:00.000Z",
+      "centro": {
+        "lat": 39.5002,
+        "lon": 2.3203
+      },
+      "semiejeMayorKm": 569.7,
+      "semiejeMenorKm": 54.9,
+      "orientacionGrados": 112.5
+    },
+    {
+      "t": "2026-08-12T18:32:30.000Z",
+      "centro": {
+        "lat": 38.844,
+        "lon": 3.8125
+      },
+      "semiejeMayorKm": 590.8,
+      "semiejeMenorKm": 52.9,
+      "orientacionGrados": 112.5
+    },
+    {
+      "t": "2026-08-12T18:33:00.000Z",
+      "centro": {
+        "lat": 38.2971,
+        "lon": 4.7813
+      },
+      "semiejeMayorKm": 508.4,
+      "semiejeMenorKm": 48.2,
+      "orientacionGrados": 112.5
+    },
+    {
+      "t": "2026-08-12T18:33:30.000Z",
+      "centro": {
+        "lat": 37.8986,
+        "lon": 5.1875
+      },
+      "semiejeMayorKm": 429.6,
+      "semiejeMenorKm": 37.6,
+      "orientacionGrados": 112.5
+    },
+    {
+      "t": "2026-08-12T18:34:00.000Z",
+      "centro": {
+        "lat": 37.6721,
+        "lon": 4.9766
+      },
+      "semiejeMayorKm": 195.6,
+      "semiejeMenorKm": 14.8,
+      "orientacionGrados": 112.5
+    }
+  ],
+  "instantesSinUmbra": [
+    "2026-08-12T18:34:30.000Z",
+    "2026-08-12T18:35:00.000Z",
+    "2026-08-12T18:35:30.000Z",
+    "2026-08-12T18:36:00.000Z",
+    "2026-08-12T18:36:30.000Z",
+    "2026-08-12T18:37:00.000Z",
+    "2026-08-12T18:37:30.000Z",
+    "2026-08-12T18:38:00.000Z",
+    "2026-08-12T18:38:30.000Z",
+    "2026-08-12T18:39:00.000Z",
+    "2026-08-12T18:39:30.000Z",
+    "2026-08-12T18:40:00.000Z"
+  ]
+}
