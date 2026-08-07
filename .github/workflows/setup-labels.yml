@@ -1,0 +1,36 @@
+name: Setup Labels
+
+# One-off bootstrap: creates (or updates) every label the agent workflows
+# depend on. Run it from Actions → Setup Labels → Run workflow. Safe to
+# re-run — existing labels are updated in place, never deleted.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  labels:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create or update labels from .github/labels.json
+        run: |
+          set -euo pipefail
+          jq -c '.[]' .github/labels.json | while read -r label; do
+            name=$(echo "$label" | jq -r '.name')
+            color=$(echo "$label" | jq -r '.color')
+            description=$(echo "$label" | jq -r '.description')
+            if gh label create "$name" --color "$color" --description "$description" 2>/dev/null; then
+              echo "created: $name"
+            else
+              gh label edit "$name" --color "$color" --description "$description"
+              echo "updated: $name"
+            fi
+          done

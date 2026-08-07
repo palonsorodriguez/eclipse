@@ -1,0 +1,840 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Eclipse — Agent Workflow Setup</title>
+    <style>
+      :root {
+        --bg: #fbfbfa;
+        --surface: #ffffff;
+        --border: #e3e1dc;
+        --text: #1f1e1c;
+        --muted: #6b6862;
+        --accent: #b8562f;
+        --accent-soft: #fdf3ee;
+        --code-bg: #f4f2ef;
+        --green: #0e8a16;
+        --yellow: #b58900;
+        --red: #b60205;
+        --purple: #5319e7;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #171614;
+          --surface: #1f1e1c;
+          --border: #34322e;
+          --text: #edeae4;
+          --muted: #9d9890;
+          --accent: #e08a5f;
+          --accent-soft: #2a1f19;
+          --code-bg: #100f0e;
+        }
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font: 16px/1.65 ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+          Roboto, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+
+      .wrap {
+        max-width: 62rem;
+        margin: 0 auto;
+        padding: 3rem 1.5rem 6rem;
+      }
+
+      header {
+        border-bottom: 1px solid var(--border);
+        padding-bottom: 2rem;
+        margin-bottom: 2.5rem;
+      }
+
+      .eyebrow {
+        font-size: 0.75rem;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--accent);
+        font-weight: 600;
+        margin: 0 0 0.75rem;
+      }
+
+      h1 {
+        font-size: clamp(1.9rem, 4vw, 2.6rem);
+        line-height: 1.15;
+        margin: 0 0 0.75rem;
+        letter-spacing: -0.02em;
+      }
+
+      .lede {
+        font-size: 1.05rem;
+        color: var(--muted);
+        margin: 0;
+        max-width: 46rem;
+      }
+
+      h2 {
+        font-size: 1.45rem;
+        letter-spacing: -0.01em;
+        margin: 3.5rem 0 1rem;
+        padding-top: 1.5rem;
+        border-top: 1px solid var(--border);
+      }
+
+      h3 {
+        font-size: 1.05rem;
+        margin: 2rem 0 0.6rem;
+      }
+
+      p,
+      li {
+        max-width: 46rem;
+      }
+
+      a {
+        color: var(--accent);
+      }
+
+      code {
+        font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+          monospace;
+        font-size: 0.875em;
+        background: var(--code-bg);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 0.1em 0.35em;
+      }
+
+      pre {
+        background: var(--code-bg);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 1rem 1.1rem;
+        overflow-x: auto;
+        font-size: 0.85rem;
+        line-height: 1.6;
+      }
+
+      pre code {
+        background: none;
+        border: none;
+        padding: 0;
+        font-size: inherit;
+      }
+
+      .step {
+        display: grid;
+        grid-template-columns: 2.5rem 1fr;
+        gap: 0 1rem;
+        margin: 2.5rem 0;
+      }
+
+      .step-num {
+        width: 2.25rem;
+        height: 2.25rem;
+        border-radius: 50%;
+        background: var(--accent-soft);
+        border: 1px solid var(--accent);
+        color: var(--accent);
+        display: grid;
+        place-items: center;
+        font-weight: 700;
+        font-size: 0.95rem;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .step-body > :first-child {
+        margin-top: 0.3rem;
+      }
+
+      .step-body h3 {
+        margin-top: 0.15rem;
+      }
+
+      .note {
+        border-left: 3px solid var(--accent);
+        background: var(--accent-soft);
+        padding: 0.85rem 1.1rem;
+        border-radius: 0 6px 6px 0;
+        margin: 1.25rem 0;
+        font-size: 0.94rem;
+      }
+
+      .note strong {
+        color: var(--accent);
+      }
+
+      .scroll {
+        overflow-x: auto;
+        margin: 1.25rem 0;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: var(--surface);
+      }
+
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        font-size: 0.9rem;
+        min-width: 34rem;
+      }
+
+      th,
+      td {
+        text-align: left;
+        padding: 0.7rem 0.9rem;
+        border-bottom: 1px solid var(--border);
+        vertical-align: top;
+      }
+
+      th {
+        font-size: 0.72rem;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+        font-weight: 600;
+      }
+
+      tbody tr:last-child td {
+        border-bottom: none;
+      }
+
+      .label {
+        display: inline-block;
+        border-radius: 999px;
+        padding: 0.1rem 0.6rem;
+        font-size: 0.78rem;
+        font-weight: 600;
+        white-space: nowrap;
+        color: #fff;
+      }
+
+      .l-green {
+        background: var(--green);
+      }
+      .l-yellow {
+        background: #fbca04;
+        color: #1f1e1c;
+      }
+      .l-red {
+        background: var(--red);
+      }
+      .l-purple {
+        background: var(--purple);
+      }
+
+      .flow {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.5rem;
+        margin: 1.5rem 0;
+        font-size: 0.86rem;
+      }
+
+      .flow span.box {
+        border: 1px solid var(--border);
+        background: var(--surface);
+        border-radius: 6px;
+        padding: 0.4rem 0.7rem;
+      }
+
+      .flow span.arrow {
+        color: var(--muted);
+      }
+
+      ul,
+      ol {
+        padding-left: 1.3rem;
+      }
+
+      li {
+        margin: 0.35rem 0;
+      }
+
+      .checklist {
+        list-style: none;
+        padding-left: 0;
+      }
+
+      .checklist li {
+        padding-left: 1.7rem;
+        position: relative;
+      }
+
+      .checklist li::before {
+        content: "☐";
+        position: absolute;
+        left: 0;
+        color: var(--accent);
+        font-size: 1.1rem;
+      }
+
+      footer {
+        margin-top: 4rem;
+        padding-top: 1.5rem;
+        border-top: 1px solid var(--border);
+        color: var(--muted);
+        font-size: 0.85rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <p class="eyebrow">Eclipse</p>
+        <h1>Agent workflow setup</h1>
+        <p class="lede">
+          This repository runs coding agents from GitHub Actions using
+          <a href="https://github.com/mattpocock/sandcastle">Sandcastle</a>. You
+          drive the agents by applying labels to issues and pull requests — no
+          local runtime, no Docker, no terminal. This page is the step-by-step
+          install guide, from a fresh clone to a first agent-authored pull
+          request.
+        </p>
+      </header>
+
+      <h2>How it works</h2>
+
+      <p>
+        Every agent task is a small TypeScript script under
+        <code>.sandcastle/</code> paired with a Markdown prompt. A GitHub Actions
+        workflow checks out the repo, installs dependencies and the Claude Code
+        CLI, then runs that script on the runner. Sandcastle handles invoking the
+        agent, capturing its session, retrying structured output, and reporting
+        the commits it produced.
+      </p>
+
+      <div class="flow">
+        <span class="box">Issue</span>
+        <span class="arrow">→</span>
+        <span class="box">label <code>agent:implement</code></span>
+        <span class="arrow">→</span>
+        <span class="box">branch + commits</span>
+        <span class="arrow">→</span>
+        <span class="box">draft PR</span>
+        <span class="arrow">→</span>
+        <span class="box">label <code>agent:review</code></span>
+        <span class="arrow">→</span>
+        <span class="box">inline review comments</span>
+      </div>
+
+      <p>
+        The runner itself is the sandbox: the scripts use Sandcastle's
+        <code>noSandbox()</code> provider because the ephemeral VM already gives
+        the isolation. The Docker provider in
+        <code>.sandcastle/main.ts</code> is only used for the optional local loop
+        described at the end of this page.
+      </p>
+
+      <h2>Prerequisites</h2>
+
+      <ul>
+        <li><strong>Node.js 22+</strong> and npm, for the one-time local install.</li>
+        <li>
+          <strong>Claude Code CLI</strong> on your machine, only to generate an
+          auth token: <code>npm install -g @anthropic-ai/claude-code</code>.
+        </li>
+        <li>
+          <strong>A GitHub repository</strong> you own, with Issues and Actions
+          enabled. Sub-issues and issue dependencies are used by the PRD and
+          queue workflows.
+        </li>
+        <li>
+          <strong>An active Claude subscription</strong> (or an Anthropic API
+          key — see step 3).
+        </li>
+      </ul>
+
+      <div class="note">
+        <strong>Cost warning.</strong> Every labelled issue starts a real agent
+        run that consumes tokens, and the architecture-review workflow runs on a
+        weekday schedule. Read step 8 before enabling anything on a repo you
+        care about.
+      </div>
+
+      <h2>Installation</h2>
+
+      <div class="step">
+        <div class="step-num">1</div>
+        <div class="step-body">
+          <h3>Install dependencies</h3>
+          <p>
+            From the repository root. This creates
+            <code>package-lock.json</code>, which the workflows need — they run
+            <code>npm ci</code>.
+          </p>
+          <pre><code>npm install</code></pre>
+          <p>Verify the agent scripts are healthy:</p>
+          <pre><code>npm run typecheck
+npm test</code></pre>
+          <p>
+            Both must pass. The second command runs Sandcastle's own unit tests
+            for the retry, extraction, and diff-parsing helpers.
+          </p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">2</div>
+        <div class="step-body">
+          <h3>Push the repository to GitHub</h3>
+          <pre><code>git add .
+git commit -m "chore: add sandcastle agent workflows"
+git push origin main</code></pre>
+          <p>
+            Workflows only exist once they are on the default branch. Commit
+            <code>package-lock.json</code> — without it <code>npm ci</code> fails
+            on the runner.
+          </p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">3</div>
+        <div class="step-body">
+          <h3>Create the Claude auth secret</h3>
+          <p>Generate a long-lived OAuth token from your Claude subscription:</p>
+          <pre><code>claude setup-token</code></pre>
+          <p>
+            Copy the token, then in GitHub go to
+            <strong>Settings → Secrets and variables → Actions → New repository
+            secret</strong> and add:
+          </p>
+          <div class="scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><code>CLAUDE_CODE_OAUTH_TOKEN</code></td>
+                  <td>The token printed by <code>claude setup-token</code></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="note">
+            <strong>Using the API instead?</strong> Replace
+            <code>CLAUDE_CODE_OAUTH_TOKEN</code> with
+            <code>ANTHROPIC_API_KEY</code> in every workflow's <code>env:</code>
+            block and in the <code>claudeCode(...)</code> calls under
+            <code>.sandcastle/</code>. Billing then goes through the Anthropic
+            API rather than your subscription.
+          </div>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">4</div>
+        <div class="step-body">
+          <h3>Create <code>AGENT_PAT</code> (strongly recommended)</h3>
+          <p>
+            The built-in <code>GITHUB_TOKEN</code> has two limits that break the
+            chain: it cannot push changes to files under
+            <code>.github/workflows/</code>, and labels it applies do
+            <em>not</em> trigger other workflows. That second one matters —
+            without a PAT, <code>agent-implement</code> cannot hand off to
+            <code>agent-review</code>.
+          </p>
+          <p>
+            Create a <strong>fine-grained personal access token</strong> at
+            <a
+              href="https://github.com/settings/personal-access-tokens/new"
+              >github.com/settings/personal-access-tokens</a
+            >, scoped to this repository only, with these repository
+            permissions:
+          </p>
+          <ul>
+            <li><strong>Contents</strong> — Read and write</li>
+            <li><strong>Issues</strong> — Read and write</li>
+            <li><strong>Pull requests</strong> — Read and write</li>
+            <li><strong>Workflows</strong> — Read and write</li>
+            <li><strong>Metadata</strong> — Read-only (mandatory)</li>
+          </ul>
+          <p>
+            Save it as the repository secret <code>AGENT_PAT</code>. Every
+            workflow falls back to <code>GITHUB_TOKEN</code> if it is missing, so
+            the setup still runs — you just have to re-apply hand-off labels
+            manually.
+          </p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">5</div>
+        <div class="step-body">
+          <h3>Open up Actions permissions</h3>
+          <p>
+            Under <strong>Settings → Actions → General</strong>, in the
+            <em>Workflow permissions</em> section:
+          </p>
+          <ul>
+            <li>Select <strong>Read and write permissions</strong>.</li>
+            <li>
+              Tick <strong>Allow GitHub Actions to create and approve pull
+              requests</strong>.
+            </li>
+          </ul>
+          <p>
+            Without these, the agent produces commits but cannot open the pull
+            request.
+          </p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">6</div>
+        <div class="step-body">
+          <h3>Create the labels</h3>
+          <p>
+            Go to <strong>Actions → Setup Labels → Run workflow</strong>. It
+            reads <code>.github/labels.json</code> and creates every label the
+            workflows depend on, with the exact names, descriptions and colours
+            listed below. Re-running it updates existing labels in place and
+            never deletes anything.
+          </p>
+          <div class="scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Label</th>
+                  <th>Colour</th>
+                  <th>Meaning</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td><span class="label l-green">agent:implement</span></td>
+                  <td><code>#0E8A16</code></td>
+                  <td>Trigger the agent-implement workflow</td>
+                </tr>
+                <tr>
+                  <td><span class="label l-green">agent:review</span></td>
+                  <td><code>#0E8A16</code></td>
+                  <td>Trigger the agent-review workflow on this PR</td>
+                </tr>
+                <tr>
+                  <td><span class="label l-green">agent:to-issues</span></td>
+                  <td><code>#0E8A16</code></td>
+                  <td>Trigger the agent-to-issues workflow</td>
+                </tr>
+                <tr>
+                  <td><span class="label l-green">agent:update-branch</span></td>
+                  <td><code>#0E8A16</code></td>
+                  <td>Trigger: merge base into this PR</td>
+                </tr>
+                <tr>
+                  <td><span class="label l-yellow">agent:in-progress</span></td>
+                  <td><code>#FBCA04</code></td>
+                  <td>An agent workflow is currently running on this issue/PR</td>
+                </tr>
+                <tr>
+                  <td><span class="label l-yellow">agent:queued</span></td>
+                  <td><code>#FBCA04</code></td>
+                  <td>Issue is queued for an agent workflow</td>
+                </tr>
+                <tr>
+                  <td><span class="label l-red">agent:blocked</span></td>
+                  <td><code>#B60205</code></td>
+                  <td>Agent run failed; re-add the trigger label to retry</td>
+                </tr>
+                <tr>
+                  <td>
+                    <span class="label l-purple">source:architecture-review</span>
+                  </td>
+                  <td><code>#5319E7</code></td>
+                  <td>
+                    PRDs proposed by the automated architecture-review workflow
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p>
+            Prefer the command line? With the
+            <a href="https://cli.github.com/">GitHub CLI</a> installed and
+            authenticated:
+          </p>
+          <pre><code>jq -c '.[]' .github/labels.json | while read -r l; do
+  gh label create "$(echo "$l" | jq -r .name)" \
+    --color "$(echo "$l" | jq -r .color)" \
+    --description "$(echo "$l" | jq -r .description)" --force
+done</code></pre>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">7</div>
+        <div class="step-body">
+          <h3>Fill in the project context</h3>
+          <p>
+            Agents read these before touching code. Empty placeholders produce
+            generic, low-quality work — this step is the single biggest lever on
+            output quality.
+          </p>
+          <ul>
+            <li>
+              <code>CONTEXT.md</code> — what Eclipse is, its domain vocabulary,
+              its architecture.
+            </li>
+            <li>
+              <code>.sandcastle/CODING_STANDARDS.md</code> — the rules reviewers
+              enforce. Add project-specific rules as they emerge.
+            </li>
+            <li>
+              <code>docs/adr/</code> — one file per settled architectural
+              decision, so agents stop re-litigating them.
+            </li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">8</div>
+        <div class="step-body">
+          <h3>Decide what runs unattended</h3>
+          <p>
+            <code>.github/workflows/architecture-review.yml</code> is scheduled
+            at <code>0 9 * * 1-5</code> — 09:00 UTC on weekdays. It inspects the
+            codebase and opens PRD issues on its own. If you would rather trigger
+            it by hand, delete the <code>schedule:</code> block and keep
+            <code>workflow_dispatch:</code>.
+          </p>
+          <p>
+            Everything else is label-driven and only runs when you ask for it.
+          </p>
+        </div>
+      </div>
+
+      <div class="step">
+        <div class="step-num">9</div>
+        <div class="step-body">
+          <h3>First run</h3>
+          <ol>
+            <li>
+              Open an issue with a clear title and a body that states the
+              acceptance criteria. Write it as a specification, not a hint.
+            </li>
+            <li>Apply <code>agent:implement</code>.</li>
+            <li>
+              Watch <strong>Actions → Agent Implement</strong>. The label flips
+              to <code>agent:in-progress</code>, and on success a draft pull
+              request appears with <code>agent:review</code> already applied.
+            </li>
+            <li>
+              If it fails, the issue gets <code>agent:blocked</code> plus a
+              comment with the reason and a link to the run. Fix the cause and
+              re-apply <code>agent:implement</code> to retry.
+            </li>
+          </ol>
+        </div>
+      </div>
+
+      <h2>Workflow reference</h2>
+
+      <div class="scroll">
+        <table>
+          <thead>
+            <tr>
+              <th>Workflow</th>
+              <th>Trigger</th>
+              <th>What it does</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><code>agent-implement.yml</code></td>
+              <td>
+                <span class="label l-green">agent:implement</span> on a
+                standalone issue
+              </td>
+              <td>
+                Branches from <code>main</code>, implements the issue, writes the
+                PR title and body, opens a draft PR, requests review.
+              </td>
+            </tr>
+            <tr>
+              <td><code>agent-implement-prd.yml</code></td>
+              <td>
+                <span class="label l-green">agent:implement</span> on an issue
+                that has sub-issues
+              </td>
+              <td>
+                Treats the issue as a PRD and implements its sub-issues in
+                sequence on a single branch.
+              </td>
+            </tr>
+            <tr>
+              <td><code>agent-implement-pr.yml</code></td>
+              <td>
+                <span class="label l-green">agent:implement</span> on a pull
+                request
+              </td>
+              <td>
+                Reads the review comments on the PR and pushes commits that
+                address them.
+              </td>
+            </tr>
+            <tr>
+              <td><code>agent-review.yml</code></td>
+              <td><span class="label l-green">agent:review</span> on a PR</td>
+              <td>
+                Reviews the diff against <code>CODING_STANDARDS.md</code> and the
+                originating issue, applies quality fixes as one squashed commit,
+                and posts inline comments.
+              </td>
+            </tr>
+            <tr>
+              <td><code>agent-to-issues-prd.yml</code></td>
+              <td><span class="label l-green">agent:to-issues</span></td>
+              <td>
+                Splits a PRD issue into sub-issues using the project's
+                vocabulary.
+              </td>
+            </tr>
+            <tr>
+              <td><code>agent-update-branch.yml</code></td>
+              <td>
+                <span class="label l-green">agent:update-branch</span> on a PR
+              </td>
+              <td>
+                Merges <code>main</code> into the PR branch and resolves
+                conflicts.
+              </td>
+            </tr>
+            <tr>
+              <td><code>agent-promote-queued.yml</code></td>
+              <td>Any issue closing</td>
+              <td>
+                Finds <span class="label l-yellow">agent:queued</span> issues
+                that listed it as a blocker and promotes the now-unblocked ones
+                to <span class="label l-green">agent:implement</span>.
+              </td>
+            </tr>
+            <tr>
+              <td><code>architecture-review.yml</code></td>
+              <td>Weekday schedule / manual</td>
+              <td>
+                Audits the codebase and opens one PRD issue labelled
+                <span class="label l-purple">source:architecture-review</span>
+                when the backlog is thin.
+              </td>
+            </tr>
+            <tr>
+              <td><code>setup-labels.yml</code></td>
+              <td>Manual</td>
+              <td>
+                Creates or updates every label from
+                <code>.github/labels.json</code>.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2>Repository layout</h2>
+
+      <pre><code>.github/
+  labels.json              Label definitions (names, colours, descriptions)
+  workflows/               One workflow per agent task
+.sandcastle/
+  Dockerfile               Image for the optional local loop
+  CODING_STANDARDS.md      Rules the reviewer enforces
+  run-with-retry.ts        Retries structured output with in-context feedback
+  run-with-extraction.ts   Splits "do the work" from "emit JSON"
+  main.ts                  Optional local plan → implement → review → merge loop
+  implement/               Script + prompt for the issue → commits task
+  write-pr/                Script + prompt for the PR title and description
+  review/                  Script + prompt for the PR review task
+  ...                      One directory per remaining task
+CONTEXT.md                 Project orientation, read by every agent
+docs/adr/                  Architecture decision records</code></pre>
+
+      <h2>Optional: the local loop</h2>
+
+      <p>
+        <code>.sandcastle/main.ts</code> is an autonomous loop that plans work
+        from open issues, implements up to four in parallel Docker sandboxes,
+        reviews each, and merges the branches. It is independent of the GitHub
+        workflows and needs more setup:
+      </p>
+
+      <ol>
+        <li>Install <a href="https://www.docker.com/">Docker Desktop</a> and start it.</li>
+        <li>Install the <a href="https://cli.github.com/">GitHub CLI</a> and run <code>gh auth login</code>.</li>
+        <li>
+          Copy <code>.sandcastle/.env.example</code> to
+          <code>.sandcastle/.env</code> and fill in
+          <code>CLAUDE_CODE_OAUTH_TOKEN</code> and <code>GH_TOKEN</code>. That
+          file is gitignored.
+        </li>
+        <li>Run <code>npm run sandcastle</code>.</li>
+      </ol>
+
+      <div class="note">
+        <strong>This one runs unattended.</strong> It loops up to ten times,
+        committing and merging as it goes. Start it on a branch you are willing
+        to throw away.
+      </div>
+
+      <h2>Troubleshooting</h2>
+
+      <h3>The PR opened but no review ever started</h3>
+      <p>
+        <code>AGENT_PAT</code> is missing or lacks pull-request permission.
+        Labels applied with <code>GITHUB_TOKEN</code> do not trigger downstream
+        workflows. Add the PAT, or re-apply <code>agent:review</code> by hand.
+      </p>
+
+      <h3>Push rejected: "refusing to allow a token to create or update workflow"</h3>
+      <p>
+        The agent changed a file under <code>.github/workflows/</code> and
+        <code>AGENT_PAT</code> lacks the <strong>Workflows</strong> permission.
+      </p>
+
+      <h3><code>npm ci</code> fails on the runner</h3>
+      <p>
+        <code>package-lock.json</code> is not committed, or it is out of sync
+        with <code>package.json</code>. Run <code>npm install</code> locally and
+        commit the result.</p>
+
+      <h3>Nothing happens when I apply a label</h3>
+      <p>
+        Check the label name character for character — the workflows match
+        exactly, and a label created by hand as <code>agent-implement</code> or
+        <code>Agent:Implement</code> will never fire. Re-run
+        <strong>Setup Labels</strong> to get the canonical set.
+      </p>
+
+      <h3>The issue was ignored with no comment</h3>
+      <p>
+        <code>agent-implement.yml</code> skips silently when the issue has
+        sub-issues — <code>agent-implement-prd.yml</code> owns that case. It
+        refuses outright, with a comment, when the issue is itself a sub-issue of
+        another one; label the parent PRD instead.
+      </p>
+
+      <footer>
+        Ported from
+        <a href="https://github.com/mattpocock/course-video-manager"
+          >mattpocock/course-video-manager</a
+        >, built on
+        <a href="https://github.com/mattpocock/sandcastle"
+          >@ai-hero/sandcastle</a
+        >. Adapted for npm and for this repository.
+      </footer>
+    </div>
+  </body>
+</html>

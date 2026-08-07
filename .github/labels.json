@@ -1,0 +1,42 @@
+[
+  {
+    "name": "agent:implement",
+    "color": "0E8A16",
+    "description": "Trigger the agent-implement workflow"
+  },
+  {
+    "name": "agent:review",
+    "color": "0E8A16",
+    "description": "Trigger the agent-review workflow on this PR"
+  },
+  {
+    "name": "agent:to-issues",
+    "color": "0E8A16",
+    "description": "Trigger the agent-to-issues workflow"
+  },
+  {
+    "name": "agent:update-branch",
+    "color": "0E8A16",
+    "description": "Trigger: merge base into this PR"
+  },
+  {
+    "name": "agent:in-progress",
+    "color": "FBCA04",
+    "description": "An agent workflow is currently running on this issue/PR"
+  },
+  {
+    "name": "agent:queued",
+    "color": "FBCA04",
+    "description": "Issue is queued for an agent workflow"
+  },
+  {
+    "name": "agent:blocked",
+    "color": "B60205",
+    "description": "Agent run failed; re-add the trigger label to retry"
+  },
+  {
+    "name": "source:architecture-review",
+    "color": "5319E7",
+    "description": "PRDs proposed by the automated architecture-review workflow"
+  }
+]

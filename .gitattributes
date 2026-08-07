@@ -1,0 +1,13 @@
+# Normalise every text file to LF in the repository and on checkout.
+# The GitHub Actions workflows run bash on Linux runners; a CRLF line ending
+# inside a `run:` block breaks the script in ways that are hard to diagnose.
+* text=auto eol=lf
+
+# Binary files git should never touch.
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary

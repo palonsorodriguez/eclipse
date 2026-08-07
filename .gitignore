@@ -1,6 +1,14 @@
 # Claude Code — configuración local (no compartir)
 .claude/settings.local.json
 
+# Dependencias
+node_modules/
+
+# Sandcastle — runtime local
+.sandcastle/.env
+.sandcastle/logs/
+.sandcastle/worktrees/
+
 # Variables de entorno y secretos
 .env
 .env.*
