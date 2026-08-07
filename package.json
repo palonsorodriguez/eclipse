@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
+    "build:municipios": "tsx scripts/build-municipios.ts",
     "test": "vitest run --passWithNoTests",
     "test:watch": "vitest",
     "sandcastle": "tsx ./.sandcastle/main.ts"
