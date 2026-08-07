@@ -1,6 +1,14 @@
+"use client";
+
+import { useState } from "react";
+import BuscadorMunicipio from "./components/BuscadorMunicipio";
+import PanelCircunstancias from "./components/PanelCircunstancias";
 import VistaCielo from "./components/VistaCielo";
+import type { Municipio } from "@/lib/municipios";
 
 export default function Home() {
+  const [observador, setObservador] = useState<Municipio | null>(null);
+
   return (
     <main
       style={{
@@ -31,10 +39,29 @@ export default function Home() {
         <strong>12 de agosto de 2026</strong> desde cualquier municipio de
         España.
       </p>
+      <BuscadorMunicipio onSelect={setObservador} />
+      {observador ? (
+        <p style={{ margin: 0 }}>
+          Observador: <strong>{observador.nombre}</strong> (
+          {observador.provincia}){" "}
+          <span style={{ opacity: 0.6 }}>
+            — {observador.lat.toFixed(4)}°, {observador.lon.toFixed(4)}°
+          </span>
+        </p>
+      ) : (
+        <p style={{ opacity: 0.6, margin: 0 }}>
+          Elige un municipio para situar al Observador.
+        </p>
+      )}
+      {observador && <PanelCircunstancias observador={observador} />}
       <p style={{ opacity: 0.6 }}>
         Totalidad sobre España: 20:26–20:33 (hora peninsular). En construcción.
       </p>
-      <VistaCielo />
+      <VistaCielo
+        observador={
+          observador ? { lat: observador.lat, lon: observador.lon } : undefined
+        }
+      />
     </main>
   );
 }
