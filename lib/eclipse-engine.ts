@@ -273,6 +273,45 @@ export function circunstanciasLocales(
 }
 
 /**
+ * Posiciones alt-az de Sol y Luna, radios aparentes y separación angular
+ * en `t` para un Observador, sin calcular las Circunstancias locales
+ * (no ejecuta la búsqueda de contactos). Es la versión "barata" de
+ * `createEclipseEngine(o).sunMoonPositions(t)` — idéntico resultado —
+ * pensada para barridos masivos de puntos.
+ */
+export function posicionesSolLunaEn(
+  observador: Observador,
+  t: Date,
+): PosicionesSolLuna {
+  return geometriaSolLuna(toObserver(observador), t);
+}
+
+/**
+ * Oscurecimiento instantáneo en `t` para un Observador, sin calcular las
+ * Circunstancias locales completas (no ejecuta la búsqueda de contactos,
+ * solo la geometría de discos del instante). Es la versión "barata" de
+ * `createEclipseEngine(o).obscurationAt(t)` — idéntico resultado — pensada
+ * para barridos masivos de puntos (p. ej. el cálculo del contorno de la
+ * umbra en `scripts/build-geodata.ts`).
+ *
+ * Devuelve la fracción [0, 1] del disco solar cubierta por la Luna.
+ */
+export function oscurecimientoInstantaneo(
+  observador: Observador,
+  t: Date,
+): number {
+  const { sol, luna, separacionAngular } = geometriaSolLuna(
+    toObserver(observador),
+    t,
+  );
+  return oscurecimientoDiscos(
+    separacionAngular,
+    sol.radioAparente,
+    luna.radioAparente,
+  );
+}
+
+/**
  * Crea el motor de eclipse para un Observador: calcula una sola vez las
  * Circunstancias locales y devuelve funciones puras para consultar el
  * Oscurecimiento y las posiciones de Sol y Luna en cualquier instante.
