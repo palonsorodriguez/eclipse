@@ -1,9 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import BuscadorMunicipio from "./components/BuscadorMunicipio";
 import PanelCircunstancias from "./components/PanelCircunstancias";
 import VistaCielo from "./components/VistaCielo";
+import { VENTANA_TOTALIDAD } from "@/lib/eclipse-2026";
 import type { Municipio } from "@/lib/municipios";
 
 export default function Home() {
@@ -55,13 +57,17 @@ export default function Home() {
       )}
       {observador && <PanelCircunstancias observador={observador} />}
       <p style={{ opacity: 0.6 }}>
-        Totalidad sobre España: 20:26–20:33 (hora peninsular). En construcción.
+        Totalidad sobre España: {VENTANA_TOTALIDAD.inicio}–
+        {VENTANA_TOTALIDAD.fin} (hora peninsular). En construcción.
       </p>
       <VistaCielo
         observador={
           observador ? { lat: observador.lat, lon: observador.lon } : undefined
         }
       />
+      <Link href="/info" style={{ color: "#ffe9a8", fontSize: "1.05rem" }}>
+        Cómo verlo sin dañarte la vista, y de dónde salen los datos
+      </Link>
     </main>
   );
 }
