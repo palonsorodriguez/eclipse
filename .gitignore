@@ -1,0 +1,28 @@
+# Claude Code — configuración local (no compartir)
+.claude/settings.local.json
+
+# Variables de entorno y secretos
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Sistema operativo
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+
+# Editores / IDEs
+.vscode/
+.idea/
+*.swp
+*~
+
+# Logs y temporales
+*.log
+logs/
+tmp/
+temp/
