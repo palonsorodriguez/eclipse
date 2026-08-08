@@ -2,12 +2,16 @@
  * cielo-draw — Pintado de la escena de la Vista Cielo sobre un canvas 2D.
  *
  * Módulo imperativo (recibe un CanvasRenderingContext2D); toda la geometría
- * y el color vienen de la lógica pura de `cielo-render.ts`. Orden de capas:
+ * y el color vienen de la lógica pura de `cielo-render.ts` y
+ * `cielo-extras.ts`. Orden de capas:
  *
  *   1. Gradiente del cielo (altitud solar × brillo)
- *   2. Estrellas (solo visibles en Totalidad)
+ *      1b. Sombra lateral de la umbra que llega (~30 s antes de C2)
+ *   2. Estrellas de fondo (solo visibles en Totalidad)
+ *      2b. Planetas y estrellas brillantes reales (fundido según brillo)
  *   3. Resplandor de 360° en el horizonte (Totalidad y umbral cercano)
  *   4. Sol (o corona + disco negro en Totalidad) y Luna
+ *      4b. Anillo de diamante y perlas de Baily (±4 s / ±1,5 s de C2/C3)
  *   5. Silueta de colinas y suelo
  *   6. Marcas y rumbos de acimut
  */
@@ -27,6 +31,18 @@ import {
   type ConfigEscena,
   type DiscoEscena,
 } from "./cielo-render";
+import {
+  alfaCuerpo,
+  anguloContacto,
+  intensidadAnilloDiamante,
+  intensidadPerlas,
+  perlasBaily,
+  proyectarCuerpos,
+  SEMILLA_PERLAS,
+  sombraLateral,
+  type CuerpoCielo,
+  type SombraLateral,
+} from "./cielo-extras";
 
 export { configEscena, type ConfigEscena };
 
@@ -38,6 +54,17 @@ export interface FotogramaEscena {
   obscuracion: number;
   /** `true` si el instante está dentro de la Totalidad (C2–C3). */
   enTotalidad: boolean;
+  /** Instante dibujado en ms epoch (ventanas de los efectos de contacto). */
+  tMs: number;
+  /** C2 local en ms epoch, o `null` si el Observador no tiene Totalidad. */
+  c2Ms: number | null;
+  /** C3 local en ms epoch, o `null` si el Observador no tiene Totalidad. */
+  c3Ms: number | null;
+  /**
+   * Planetas y estrellas reales a considerar (de `cuerposCielo`). Puede ir
+   * vacío cuando el cielo es demasiado brillante para que se vean.
+   */
+  cuerpos: CuerpoCielo[];
 }
 
 /** Streamers de la corona: ángulo (rad), longitud (× radio) y anchura (rad). */
@@ -145,6 +172,159 @@ function dibujarSolParcial(
   }
 }
 
+/** Perlas de Baily fijas (semilla de la fecha del eclipse): reproducibles. */
+const PERLAS = perlasBaily(SEMILLA_PERLAS);
+
+/**
+ * Capa 1b — sombra lateral: la umbra oscurece el cielo por el lado del
+ * canvas por donde llega (ONO) en los ~30 s previos a C2, y se retira por
+ * el contrario tras C3.
+ */
+function dibujarSombraLateral(
+  ctx: CanvasRenderingContext2D,
+  cfg: ConfigEscena,
+  sombra: SombraLateral,
+): void {
+  if (sombra.intensidad <= 0.01) return;
+  const alfa = 0.5 * sombra.intensidad;
+  const grad = sombra.desdeIzquierda
+    ? ctx.createLinearGradient(0, 0, cfg.ancho * 0.65, 0)
+    : ctx.createLinearGradient(cfg.ancho, 0, cfg.ancho * 0.35, 0);
+  grad.addColorStop(0, `rgba(8,10,24,${alfa.toFixed(3)})`);
+  grad.addColorStop(1, "rgba(8,10,24,0)");
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, cfg.ancho, yHorizonte(cfg));
+}
+
+/**
+ * Capa 2b — planetas y estrellas brillantes reales, fundidos según el
+ * brillo del cielo. Los planetas llevan halo y etiqueta; las estrellas,
+ * punto y etiqueta más tenues. Venus fuera de encuadre se insinúa como
+ * indicador en el borde.
+ */
+function dibujarCuerpos(
+  ctx: CanvasRenderingContext2D,
+  cfg: ConfigEscena,
+  cuerpos: CuerpoCielo[],
+  brillo: number,
+): void {
+  if (cuerpos.length === 0) return;
+  for (const c of proyectarCuerpos(cuerpos, cfg)) {
+    const alfa = alfaCuerpo(brillo, c.cuerpo.tipo);
+    if (alfa <= 0.02) continue;
+
+    if (!c.dentro) {
+      // Indicador de borde (Venus, fuera del encuadre lateral).
+      const enIzquierda = c.x < cfg.ancho / 2;
+      ctx.font = "11px system-ui, sans-serif";
+      ctx.textBaseline = "middle";
+      ctx.textAlign = enIzquierda ? "left" : "right";
+      ctx.fillStyle = `rgba(255,255,255,${(0.55 * alfa).toFixed(3)})`;
+      ctx.fillText(
+        enIzquierda ? `◂ ${c.cuerpo.nombre}` : `${c.cuerpo.nombre} ▸`,
+        enIzquierda ? 8 : cfg.ancho - 8,
+        c.y,
+      );
+      continue;
+    }
+
+    const esPlaneta = c.cuerpo.tipo === "planeta";
+    if (esPlaneta) {
+      const halo = ctx.createRadialGradient(c.x, c.y, 0, c.x, c.y, c.radio * 3.5);
+      halo.addColorStop(0, `rgba(255,253,244,${(0.5 * alfa).toFixed(3)})`);
+      halo.addColorStop(1, "rgba(255,253,244,0)");
+      ctx.fillStyle = halo;
+      ctx.beginPath();
+      ctx.arc(c.x, c.y, c.radio * 3.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = `rgba(255,255,255,${alfa.toFixed(3)})`;
+    ctx.beginPath();
+    ctx.arc(c.x, c.y, c.radio, 0, Math.PI * 2);
+    ctx.fill();
+
+    const alfaEtiqueta = alfa * (esPlaneta ? 0.7 : 0.45);
+    ctx.font = "10px system-ui, sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    ctx.fillStyle = `rgba(255,255,255,${alfaEtiqueta.toFixed(3)})`;
+    ctx.fillText(c.cuerpo.nombre, c.x, c.y - c.radio - 4);
+  }
+}
+
+/**
+ * Capa 4b — anillo de diamante: anillo fino de fotosfera alrededor del
+ * limbo con un destello brillante asimétrico en el punto de contacto
+ * (dirección Luna → Sol prolongada hasta el limbo).
+ */
+function dibujarAnilloDiamante(
+  ctx: CanvasRenderingContext2D,
+  sol: DiscoEscena,
+  luna: DiscoEscena,
+  intensidad: number,
+): void {
+  // Anillo fino de fotosfera sobre el limbo solar.
+  ctx.strokeStyle = `rgba(255,250,238,${(0.3 + 0.55 * intensidad).toFixed(3)})`;
+  ctx.lineWidth = Math.max(1.2, sol.radio * 0.025);
+  ctx.beginPath();
+  ctx.arc(sol.x, sol.y, sol.radio, 0, Math.PI * 2);
+  ctx.stroke();
+
+  // Destello en el punto de contacto.
+  const ang = anguloContacto(sol, luna);
+  const px = sol.x + Math.cos(ang) * sol.radio;
+  const py = sol.y + Math.sin(ang) * sol.radio;
+  const rNucleo = sol.radio * (0.18 + 0.45 * intensidad);
+  const destello = ctx.createRadialGradient(px, py, 0, px, py, rNucleo * 3);
+  destello.addColorStop(0, `rgba(255,255,252,${(0.95 * intensidad).toFixed(3)})`);
+  destello.addColorStop(0.25, `rgba(255,244,214,${(0.55 * intensidad).toFixed(3)})`);
+  destello.addColorStop(1, "rgba(255,236,190,0)");
+  ctx.fillStyle = destello;
+  ctx.beginPath();
+  ctx.arc(px, py, rNucleo * 3, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Aspas del diamante: cuatro puntas finas giradas 45° sobre el contacto.
+  ctx.strokeStyle = `rgba(255,255,250,${(0.6 * intensidad).toFixed(3)})`;
+  ctx.lineWidth = 1.2;
+  const largo = rNucleo * 3.4;
+  for (let k = 0; k < 2; k++) {
+    const a = ang + Math.PI / 4 + (k * Math.PI) / 2;
+    ctx.beginPath();
+    ctx.moveTo(px - Math.cos(a) * largo, py - Math.sin(a) * largo);
+    ctx.lineTo(px + Math.cos(a) * largo, py + Math.sin(a) * largo);
+    ctx.stroke();
+  }
+}
+
+/**
+ * Capa 4b — perlas de Baily: cuentas irregulares de luz sobre el limbo
+ * alrededor del punto de contacto, en los ~1,5 s pegados a C2/C3.
+ */
+function dibujarPerlas(
+  ctx: CanvasRenderingContext2D,
+  sol: DiscoEscena,
+  luna: DiscoEscena,
+  intensidad: number,
+): void {
+  const ang = anguloContacto(sol, luna);
+  for (const p of PERLAS) {
+    const a = ang + p.desfase;
+    const px = sol.x + Math.cos(a) * sol.radio;
+    const py = sol.y + Math.sin(a) * sol.radio;
+    const r = sol.radio * 0.05 * (0.6 + p.tam);
+    const alfa = intensidad * p.brillo;
+    const grad = ctx.createRadialGradient(px, py, 0, px, py, r * 3);
+    grad.addColorStop(0, `rgba(255,255,250,${alfa.toFixed(3)})`);
+    grad.addColorStop(0.4, `rgba(255,246,220,${(alfa * 0.5).toFixed(3)})`);
+    grad.addColorStop(1, "rgba(255,240,200,0)");
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(px, py, r * 3, 0, Math.PI * 2);
+    ctx.fill();
+  }
+}
+
 function dibujarHorizonte(ctx: CanvasRenderingContext2D, cfg: ConfigEscena): void {
   const yHor = yHorizonte(cfg);
 
@@ -214,6 +394,13 @@ export function dibujarEscena(
   ctx.fillStyle = cielo;
   ctx.fillRect(0, 0, cfg.ancho, cfg.alto);
 
+  // 1b. Sombra lateral: la umbra se siente venir (~30 s antes de C2).
+  dibujarSombraLateral(
+    ctx,
+    cfg,
+    sombraLateral(f.tMs, f.c2Ms, f.c3Ms, cfg.acimutCentro),
+  );
+
   // 2. Estrellas: emergen solo cuando el cielo se apaga del todo.
   const alfaEstrellas = f.enTotalidad ? 1 : Math.max(0, 1 - brillo / 0.06) * 0.5;
   if (alfaEstrellas > 0.01) {
@@ -224,6 +411,9 @@ export function dibujarEscena(
       ctx.fill();
     }
   }
+
+  // 2b. Planetas y estrellas brillantes reales, con etiqueta sutil.
+  dibujarCuerpos(ctx, cfg, f.cuerpos, brillo);
 
   // 3. Resplandor crepuscular de 360° pegado al horizonte (Totalidad y
   //    umbral inmediato): la luz del día fuera de la sombra lunar.
@@ -245,6 +435,12 @@ export function dibujarEscena(
     dibujarCorona(ctx, esc.luna);
   } else if (f.posiciones.sol.altitud > -1) {
     dibujarSolParcial(ctx, esc.sol, esc.luna, brillo);
+
+    // 4b. Anillo de diamante (±4 s) y perlas de Baily (±1,5 s) de C2/C3.
+    const iAnillo = intensidadAnilloDiamante(f.tMs, f.c2Ms, f.c3Ms);
+    if (iAnillo > 0) dibujarAnilloDiamante(ctx, esc.sol, esc.luna, iAnillo);
+    const iPerlas = intensidadPerlas(f.tMs, f.c2Ms, f.c3Ms);
+    if (iPerlas > 0) dibujarPerlas(ctx, esc.sol, esc.luna, iPerlas);
   }
 
   // 5–6. Horizonte y rótulos.
