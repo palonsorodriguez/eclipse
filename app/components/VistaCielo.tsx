@@ -9,14 +9,16 @@
  * - Geometría/color puros: `lib/cielo-render.ts` (proyección, zoom de
  *   discos documentado, curva de brillo).
  * - Pintado: `lib/cielo-draw.ts`.
- * - Reloj: `lib/useLineaDeTiempo.ts` (rAF + ref, compartido con la
- *   Vista Mapa), que dibuja cada frame directamente en el canvas.
+ * - Reloj: `lib/reloj-tiempo.ts` vía `useLineaDeTiempo` — el reloj único
+ *   compartido con la Vista Mapa; su bucle dibuja cada frame directamente
+ *   en el canvas.
  */
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { createEclipseEngine, type Observador } from "@/lib/eclipse-engine";
 import { configEscena, dibujarEscena } from "@/lib/cielo-draw";
 import { useLineaDeTiempo } from "@/lib/useLineaDeTiempo";
+import { T_MIN, T_MAX } from "@/lib/reloj-tiempo";
 import type { ContactosMs } from "@/lib/linea-tiempo-velocidad";
 import ControlesTiempo from "./ControlesTiempo";
 import { brilloEscena } from "@/lib/cielo-render";
@@ -29,9 +31,6 @@ import {
 /** Ferrol, por defecto hasta que el buscador de municipios esté integrado. */
 const FERROL: Observador = { lat: 43.4832, lon: -8.2369 };
 
-/** Línea de tiempo: 19:15–21:30 CEST del 12-08-2026 (CEST = UT+2). */
-const T_MIN = Date.UTC(2026, 7, 12, 17, 15, 0);
-const T_MAX = Date.UTC(2026, 7, 12, 19, 30, 0);
 const CEST_OFFSET_MS = 2 * 3600_000;
 
 /** Lista vacía estable para cuando el cielo es demasiado brillante. */
@@ -138,13 +137,9 @@ export default function VistaCielo({ observador = FERROL }: VistaCieloProps) {
     [circ, c2Ms, c3Ms],
   );
 
-  // Reloj de la Línea de tiempo: rAF + ref, pinta el canvas cada frame.
-  const linea = useLineaDeTiempo({
-    tMin: T_MIN,
-    tMax: T_MAX,
-    contactos,
-    onFrame: dibujar,
-  });
+  // Reloj único de la Línea de tiempo: esta vista se suscribe con su
+  // pintor; el bucle común pinta el canvas en cada frame.
+  const linea = useLineaDeTiempo({ contactos, onFrame: dibujar });
   const { tUi } = linea;
 
   const oscuracionUi = useMemo(
