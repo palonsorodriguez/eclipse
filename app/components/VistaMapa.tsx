@@ -55,6 +55,12 @@ import {
   trayectoriaUmbra,
   type RejillaOscurecimiento,
 } from "@/lib/mapa";
+import {
+  clasificarColorNube,
+  obtenerNubesFranja,
+  type ColorNube,
+  type PuntoNube,
+} from "@/lib/meteo-mapa";
 import { useLineaDeTiempo } from "@/lib/useLineaDeTiempo";
 
 /** Estilo de teselas: CARTO Positron, libre y sin clave API. */
@@ -101,6 +107,20 @@ const COLOR_CENTRAL = "#c9a227";
 const COLOR_ISOLINEA = "#a89968";
 const COLOR_FRANJA_VIVA = "#ffb347";
 const COLOR_BORDE_FRANJA_VIVA = "#e8912d";
+
+/** Colores de la capa de nubes por categoría de nubosidad media. */
+const COLORES_NUBES: Record<ColorNube, string> = {
+  verde: "#3f9e4d",
+  amarillo: "#e3b52a",
+  gris: "#8a8f98",
+};
+
+/** Entradas de la leyenda compacta de la capa de nubes. */
+const LEYENDA_NUBES: ReadonlyArray<{ color: ColorNube; texto: string }> = [
+  { color: "verde", texto: "< 25 %" },
+  { color: "amarillo", texto: "25–60 %" },
+  { color: "gris", texto: "> 60 %" },
+];
 
 const FC_VACIA = {
   type: "FeatureCollection",
@@ -178,6 +198,11 @@ export default function VistaMapa({ observador, onSelect }: VistaMapaProps) {
   const [nivelPct, setNivelPct] = useState(90);
   const [rejilla, setRejilla] = useState<RejillaOscurecimiento | null>(null);
   const [progreso, setProgreso] = useState(0);
+
+  const [nubesActivas, setNubesActivas] = useState(false);
+  const [nubes, setNubes] = useState<PuntoNube[] | null>(null);
+  const [cargandoNubes, setCargandoNubes] = useState(false);
+  const [errorNubes, setErrorNubes] = useState(false);
 
   const onSelectRef = useRef(onSelect);
   onSelectRef.current = onSelect;
@@ -442,6 +467,80 @@ export default function VistaMapa({ observador, onSelect }: VistaMapaProps) {
       }
     };
   }, [mapaListo, datos]);
+
+  // --- Capa de nubes: previsión al activar el toggle ------------------------
+  // La descarga se refresca en cada activación, no en cada carga de la
+  // página; `obtenerNubesFranja` cachea en memoria 30 min, así que activar
+  // y desactivar el toggle no repite la petición dentro de esa ventana.
+  useEffect(() => {
+    if (!nubesActivas || !datos) return;
+    let cancelado = false;
+    setCargandoNubes(true);
+    setErrorNubes(false);
+    obtenerNubesFranja(datos.banda)
+      .then((puntos) => {
+        if (!cancelado) setNubes(puntos);
+      })
+      .catch(() => {
+        if (!cancelado) setErrorNubes(true);
+      })
+      .finally(() => {
+        if (!cancelado) setCargandoNubes(false);
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [nubesActivas, datos]);
+
+  // Círculos coloreados por nubosidad media, bajo los límites de la banda
+  // y la umbra para no tapar la geometría del eclipse.
+  useEffect(() => {
+    const mapa = mapaRef.current;
+    if (!mapa || !capasListas || !nubesActivas || !nubes) return;
+
+    mapa.addSource("nubes", {
+      type: "geojson",
+      data: {
+        type: "FeatureCollection",
+        features: nubes.map((punto) => ({
+          type: "Feature",
+          properties: {
+            color: COLORES_NUBES[clasificarColorNube(punto.nubosidadMedia)],
+          },
+          geometry: { type: "Point", coordinates: [punto.lon, punto.lat] },
+        })),
+      },
+    });
+    mapa.addLayer(
+      {
+        id: "nubes-circulos",
+        type: "circle",
+        source: "nubes",
+        paint: {
+          "circle-color": ["get", "color"],
+          "circle-opacity": 0.4,
+          "circle-blur": 0.35,
+          "circle-radius": [
+            "interpolate",
+            ["linear"],
+            ["zoom"],
+            4,
+            9,
+            7,
+            26,
+          ],
+        },
+      },
+      "banda-limites",
+    );
+
+    return () => {
+      if (mapaRef.current === mapa && mapa.getSource("nubes")) {
+        if (mapa.getLayer("nubes-circulos")) mapa.removeLayer("nubes-circulos");
+        mapa.removeSource("nubes");
+      }
+    };
+  }, [capasListas, nubesActivas, nubes]);
 
   // --- Isolínea en vivo: rejilla + nivel → contorno -------------------------
   useEffect(() => {
@@ -723,6 +822,70 @@ export default function VistaMapa({ observador, onSelect }: VistaMapaProps) {
             style={{ width: 180, accentColor: COLOR_FRANJA_VIVA }}
           />
         </label>
+
+        {/* Capa de nubes: toggle + leyenda compacta */}
+        <button
+          type="button"
+          aria-pressed={nubesActivas}
+          onClick={() => setNubesActivas((activas) => !activas)}
+          style={{
+            padding: "0.3rem 0.8rem",
+            borderRadius: 999,
+            border: `1px solid ${nubesActivas ? "#6b7280" : "#c5c9cf"}`,
+            background: nubesActivas ? "#eef1f5" : "transparent",
+            color: nubesActivas ? "#1f2937" : "inherit",
+            fontWeight: 600,
+            cursor: "pointer",
+          }}
+        >
+          ☁️ Nubes
+        </button>
+        {nubesActivas && cargandoNubes && (
+          <span style={{ opacity: 0.65, fontSize: "0.85rem" }}>
+            Cargando previsión…
+          </span>
+        )}
+        {nubesActivas && errorNubes && !cargandoNubes && (
+          <span role="alert" style={{ color: "#b45309", fontSize: "0.85rem" }}>
+            Previsión no disponible ahora mismo.
+          </span>
+        )}
+        {nubesActivas && nubes && !cargandoNubes && !errorNubes && (
+          <span
+            aria-label="Leyenda de nubosidad media prevista (ventana 19:30–21:30)"
+            style={{
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 10,
+              fontSize: "0.8rem",
+              opacity: 0.85,
+            }}
+          >
+            {LEYENDA_NUBES.map(({ color, texto }) => (
+              <span
+                key={color}
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                }}
+              >
+                <span
+                  style={{
+                    width: 10,
+                    height: 10,
+                    borderRadius: "50%",
+                    background: COLORES_NUBES[color],
+                    opacity: 0.75,
+                    flex: "none",
+                  }}
+                />
+                {texto}
+              </span>
+            ))}
+            <span style={{ opacity: 0.7 }}>nubes 19:30–21:30</span>
+          </span>
+        )}
       </div>
       {!rejilla && !errorDatos && (
         <p style={{ margin: "4px 0 0", opacity: 0.65, fontSize: "0.85rem" }}>
