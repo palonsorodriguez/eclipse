@@ -15,8 +15,11 @@ import {
   cargarBandaTotalidad,
   cargarIsolineas,
   cargarUmbra,
+  destino,
   distanciaKm,
+  N_RUMBOS_UMBRA,
   puntoEnMultiPolygon,
+  rumboUmbra,
   type BandaTotalidadGeoJSON,
   type IsolineasGeoJSON,
   type LimiteBanda,
@@ -98,19 +101,22 @@ describe("carga desde /geodata/ vía fetch", () => {
     ]);
   });
 
-  test("cargarUmbra devuelve instantes ordenados con elipses plausibles", async () => {
+  test("cargarUmbra devuelve instantes ordenados con contornos plausibles", async () => {
     const u = await cargarUmbra();
     expect(u.instantes.length).toBeGreaterThan(10);
+    let tAnterior = -Infinity;
     for (const i of u.instantes) {
-      expect(i.semiejeMayorKm).toBeGreaterThanOrEqual(i.semiejeMenorKm);
-      // La umbra del 2026 mide ~60 km de semieje menor sobre España; solo
-      // en el último instante, rozando el terminador, baja de 20 km.
-      expect(i.semiejeMenorKm).toBeGreaterThan(5);
-      // Sin tope artificial: al atardecer la sombra rasante se estira de
-      // verdad, pero nunca más allá de una cota geométrica holgada.
-      expect(i.semiejeMayorKm).toBeLessThan(5000);
-      expect(i.orientacionGrados).toBeGreaterThanOrEqual(0);
-      expect(i.orientacionGrados).toBeLessThan(180);
+      const t = new Date(i.t).getTime();
+      expect(t).toBeGreaterThan(tAnterior);
+      tAnterior = t;
+      // Contorno real: un radio por cada uno de los 48 rumbos fijos.
+      expect(i.radiosKm).toHaveLength(N_RUMBOS_UMBRA);
+      for (const radio of i.radiosKm) {
+        expect(radio).toBeGreaterThan(0);
+        // Sin tope artificial, pero nunca más allá de la salvaguarda
+        // geométrica (media circunferencia terrestre).
+        expect(radio).toBeLessThanOrEqual(Math.PI * 6371);
+      }
     }
   });
 });
@@ -172,45 +178,40 @@ describe("umbra.json", () => {
     expect(umbra.instantes[0].centro.lon).toBeLessThan(-20);
   });
 
-  test("el borde trasero de la umbra avanza de oeste a este sin retroceder", () => {
-    // Desde que el centro de la elipse se desplaza para anclar el borde
-    // trasero del óvalo rasante, el invariante físico es ese borde: la
-    // cola de la sombra avanza siempre hacia el este. El centro de la
-    // elipse, en cambio, retrocede legítimamente tras el pico rasante
-    // (la punta queda clavada en el terminador mientras la elipse
-    // encoge), así que no se exige monotonía sobre él.
-    const DEG2RAD = Math.PI / 180;
-    const lonsCola = umbra.instantes.map((i) => {
-      const th = (i.orientacionGrados + 180) * DEG2RAD;
-      const dLonDeg =
-        ((i.semiejeMayorKm / 6371) * Math.sin(th)) /
-        DEG2RAD /
-        Math.cos(i.centro.lat * DEG2RAD);
-      return i.centro.lon + dLonDeg;
-    });
+  // Nota (ticket #31): aquí vivían dos tests del modelo de elipse que se
+  // eliminan con él, no se sustituyen: "la orientación de la elipse es
+  // suave" (vigilaba el "volantazo" del ajuste PCA — el contorno real no
+  // tiene orientación que cuantizar) y el cálculo de la cola vía
+  // semieje mayor + orientación (ahora la cola se mide directamente sobre
+  // los vértices del contorno, abajo).
+
+  test("la cola del contorno (su punto más occidental) avanza hacia el este sin retroceder", () => {
+    // El invariante físico del borde trasero: la punta de la lágrima se
+    // estira hacia el terminador (este), pero la cola de la sombra nunca
+    // retrocede. Con la elipse esto exigía un ancla artificial; con el
+    // contorno real basta mirar el vértice más occidental.
+    const lonsCola = umbra.instantes.map((i) =>
+      Math.min(
+        ...i.radiosKm.map(
+          (radio, k) =>
+            destino(i.centro.lat, i.centro.lon, rumboUmbra(k), radio).lon,
+        ),
+      ),
+    );
     // Tolerancia de 0,05° (~4 km): ruido de bisección/redondeo.
     for (let i = 1; i < lonsCola.length; i++) {
       expect(lonsCola[i]).toBeGreaterThan(lonsCola[i - 1] - 0.05);
     }
   });
 
-  test("la orientación de la elipse es suave: sin saltos ≥ 5° entre instantes", () => {
-    // El bug del "volantazo": el generador antiguo cuantizaba la
-    // orientación al rumbo ganador de un haz de 32 (saltos de 11,25°).
-    // Con el ajuste por momentos de segundo orden (PCA) la orientación
-    // gira de forma continua. La diferencia se mide módulo 180 (la
-    // elipse tiene simetría 180°).
-    for (let i = 1; i < umbra.instantes.length; i++) {
-      const a = umbra.instantes[i - 1].orientacionGrados;
-      const b = umbra.instantes[i].orientacionGrados;
-      const dif = Math.abs(((((b - a + 90) % 180) + 180) % 180) - 90);
-      expect(dif).toBeLessThan(5);
-    }
+  test("el contorno no está capado: al atardecer algún radio supera los 600 km", () => {
+    const maximo = Math.max(...umbra.instantes.flatMap((i) => i.radiosKm));
+    expect(maximo).toBeGreaterThan(600);
   });
 
-  test("el semieje mayor no está capado: al atardecer supera los 600 km", () => {
-    const maximo = Math.max(...umbra.instantes.map((i) => i.semiejeMayorKm));
-    expect(maximo).toBeGreaterThan(600);
+  test("destino y distanciaKm son inversos sobre la esfera media", () => {
+    const p = destino(43, -6, 37, 250);
+    expect(distanciaKm([-6, 43], [p.lon, p.lat])).toBeCloseTo(250, 6);
   });
 
   test("a media travesía el centro de la umbra cae dentro de la Franja", () => {

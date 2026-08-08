@@ -8,7 +8,7 @@
  *   línea central).
  * - `isolineas.geojson` — Isolíneas de Oscurecimiento máximo (regiones
  *   con Oscurecimiento ≥ nivel).
- * - `umbra.json` — centro y elipse aproximada de la umbra cada 30 s.
+ * - `umbra.json` — centro y contorno real de la umbra cada 30 s.
  */
 
 import type { FeatureCollection, LineString, MultiPolygon, Position } from "geojson";
@@ -38,21 +38,34 @@ export type IsolineasGeoJSON = FeatureCollection<
   { nivel: number }
 >;
 
-/** La umbra en un instante: centro y elipse aproximada de su contorno. */
+/**
+ * Número de rumbos fijos del contorno de la umbra: el radio `radiosKm[i]`
+ * corresponde al rumbo `i · 360/48 = i · 7,5°` desde el norte
+ * ({@link rumboUmbra}).
+ */
+export const N_RUMBOS_UMBRA = 48;
+
+/** Rumbo (grados desde el norte) del índice `i` de `radiosKm`. */
+export function rumboUmbra(i: number): number {
+  return (i * 360) / N_RUMBOS_UMBRA;
+}
+
+/**
+ * La umbra en un instante: centro del eje de la sombra y su contorno real
+ * como radios del borde de la Totalidad en rumbos fijos. Sin modelo de
+ * elipse: cada radio se mide por bisección en el generador, así la sombra
+ * rasante conserva su forma de lágrima estirada hacia el terminador.
+ */
 export interface InstanteUmbra {
   /** Instante UT en ISO 8601. */
   t: string;
   /** Centro de la umbra (donde el eje de la sombra corta el suelo). */
   centro: { lat: number; lon: number };
-  /** Semieje mayor de la elipse aproximada, en km. */
-  semiejeMayorKm: number;
-  /** Semieje menor de la elipse aproximada, en km. */
-  semiejeMenorKm: number;
   /**
-   * Orientación del semieje mayor: rumbo en grados desde el norte,
-   * en [0, 180).
+   * Radio del borde de la Totalidad en km para cada uno de los
+   * {@link N_RUMBOS_UMBRA} rumbos fijos (índice `i` → rumbo `i · 7,5°`).
    */
-  orientacionGrados: number;
+  radiosKm: number[];
 }
 
 /** `umbra.json`: trayectoria de la umbra a intervalos regulares. */
@@ -101,6 +114,36 @@ export function cargarUmbra(): Promise<UmbraJSON> {
 
 const RADIO_TIERRA_KM = 6371;
 const DEG2RAD = Math.PI / 180;
+const RAD2DEG = 180 / Math.PI;
+
+/**
+ * Punto de destino a `distanciaKm` del origen siguiendo el rumbo `rumbo`
+ * (grados desde el norte), por gran círculo sobre la esfera media. Es la
+ * misma fórmula con la que `scripts/build-geodata.ts` mide los radios del
+ * contorno de la umbra: reconstruir el polígono con ella garantiza que
+ * los vértices caen exactamente sobre el borde medido.
+ */
+export function destino(
+  lat: number,
+  lon: number,
+  rumbo: number,
+  distanciaKm: number,
+): { lat: number; lon: number } {
+  const d = distanciaKm / RADIO_TIERRA_KM;
+  const th = rumbo * DEG2RAD;
+  const la1 = lat * DEG2RAD;
+  const lo1 = lon * DEG2RAD;
+  const la2 = Math.asin(
+    Math.sin(la1) * Math.cos(d) + Math.cos(la1) * Math.sin(d) * Math.cos(th),
+  );
+  const lo2 =
+    lo1 +
+    Math.atan2(
+      Math.sin(th) * Math.sin(d) * Math.cos(la1),
+      Math.cos(d) - Math.sin(la1) * Math.sin(la2),
+    );
+  return { lat: la2 * RAD2DEG, lon: lo2 * RAD2DEG };
+}
 
 /**
  * Distancia haversine en km entre dos puntos `[lon, lat]` (orden GeoJSON).

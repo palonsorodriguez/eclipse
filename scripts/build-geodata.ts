@@ -36,8 +36,8 @@
  *    con d3-contour. Cada feature es un MultiPolygon (la región con
  *    Oscurecimiento ≥ nivel) con la propiedad `nivel`.
  *
- * 3. `umbra.json` — posición del centro de la umbra y su contorno
- *    aproximado (elipse: centro, semiejes en km y orientación) cada 30 s
+ * 3. `umbra.json` — posición del centro de la umbra y su contorno real
+ *    (radios del borde de la Totalidad en 48 rumbos fijos) cada 30 s
  *    entre las 17:55 y las 18:40 UT (la entrada atlántica queda dentro de
  *    la serie: la sombra se ve venir desde el noroeste).
  *
@@ -45,20 +45,17 @@
  *    topocéntrica Sol–Luna sobre la superficie (refinamiento sucesivo de
  *    rejilla): el mínimo es el punto donde el eje de la sombra corta el
  *    suelo, es decir, el centro de la umbra. Desde el centro se lanza un
- *    haz de 32 rumbos y se busca por bisección la distancia a la que el
- *    Oscurecimiento instantáneo deja de ser 1 (ampliando el alcance de
- *    búsqueda si hace falta: cerca de la puesta de sol la sombra es
- *    rasante y se estira cientos o miles de km — no hay tope artificial).
- *    La orientación de la elipse es el eje principal (momentos de segundo
- *    orden / PCA) de los 32 puntos del borde proyectados a un plano local
- *    en km — continua, no cuantizada al rumbo ganador del haz — y los
- *    semiejes se miden por bisección a lo largo de los ejes principales
- *    (media de los dos radios opuestos de cada eje), y el centro de la
- *    elipse se desplaza hacia el radio largo para anclar el borde trasero
- *    del óvalo asimétrico rasante. Los instantes en los
- *    que la umbra no toca la superficie con el Sol sobre el horizonte
- *    (antes de entrar por el Atlántico o tras la puesta de sol en el
- *    Mediterráneo) se omiten y quedan anotados en `instantesSinUmbra`.
+ *    haz de 48 rumbos fijos (índice i → rumbo i·7,5°) y se busca por
+ *    bisección la distancia a la que el Oscurecimiento instantáneo deja
+ *    de ser 1 (ampliando el alcance de búsqueda si hace falta: cerca de
+ *    la puesta de sol la sombra es rasante y se estira cientos o miles de
+ *    km — no hay tope artificial). Los 48 radios se guardan tal cual
+ *    (`radiosKm`, redondeados a 0,1 km): sin ajuste de elipse, el
+ *    contorno conserva la forma real de lágrima de la sombra rasante.
+ *    Los instantes en los que la umbra no toca la superficie con el Sol
+ *    sobre el horizonte (antes de entrar por el Atlántico o tras la
+ *    puesta de sol en el Mediterráneo) se omiten y quedan anotados en
+ *    `instantesSinUmbra`.
  */
 
 import { mkdirSync, writeFileSync } from "node:fs";
@@ -71,11 +68,14 @@ import {
   posicionesSolLunaEn,
   type CircunstanciasLocales,
 } from "../lib/eclipse-engine";
-import type {
-  BandaTotalidadGeoJSON,
-  InstanteUmbra,
-  IsolineasGeoJSON,
-  UmbraJSON,
+import {
+  destino,
+  N_RUMBOS_UMBRA,
+  rumboUmbra,
+  type BandaTotalidadGeoJSON,
+  type InstanteUmbra,
+  type IsolineasGeoJSON,
+  type UmbraJSON,
 } from "../lib/geodata";
 
 // ---------------------------------------------------------------------------
@@ -111,9 +111,6 @@ const UMBRA_PASO_S = 30;
 /** Radio medio terrestre en km, para pasar de km a grados de arco. */
 const RADIO_TIERRA_KM = 6371;
 
-const DEG2RAD = Math.PI / 180;
-const RAD2DEG = 180 / Math.PI;
-
 // ---------------------------------------------------------------------------
 // Utilidades
 // ---------------------------------------------------------------------------
@@ -141,32 +138,6 @@ function circunstancias12Ago(
 /** ¿Hay Totalidad en este punto el 12-08-2026? */
 function esTotal(lat: number, lon: number): boolean {
   return circunstancias12Ago(lat, lon)?.tipo === "total";
-}
-
-/**
- * Punto de destino a `distanciaKm` del origen siguiendo el rumbo `rumbo`
- * (grados desde el norte), sobre la esfera media.
- */
-function destino(
-  lat: number,
-  lon: number,
-  rumbo: number,
-  distanciaKm: number,
-): { lat: number; lon: number } {
-  const d = distanciaKm / RADIO_TIERRA_KM;
-  const th = rumbo * DEG2RAD;
-  const la1 = lat * DEG2RAD;
-  const lo1 = lon * DEG2RAD;
-  const la2 = Math.asin(
-    Math.sin(la1) * Math.cos(d) + Math.cos(la1) * Math.sin(d) * Math.cos(th),
-  );
-  const lo2 =
-    lo1 +
-    Math.atan2(
-      Math.sin(th) * Math.sin(d) * Math.cos(la1),
-      Math.cos(d) - Math.sin(la1) * Math.sin(la2),
-    );
-  return { lat: la2 * RAD2DEG, lon: lo2 * RAD2DEG };
 }
 
 // ---------------------------------------------------------------------------
@@ -515,84 +486,23 @@ function generarUmbra(columnas: ColumnaBanda[]): UmbraJSON {
       continue;
     }
 
-    // Contorno: haz de 32 rumbos, radio por bisección en cada uno. Los
-    // puntos del borde se proyectan a un plano local en km (este/norte).
-    const N_RUMBOS = 32;
-    const borde: Array<{ x: number; y: number }> = [];
-    for (let r = 0; r < N_RUMBOS; r++) {
-      const rumbo = (r * 360) / N_RUMBOS;
-      const radio = radioUmbra(centro, rumbo, t);
-      borde.push({
-        x: radio * Math.sin(rumbo * DEG2RAD), // este
-        y: radio * Math.cos(rumbo * DEG2RAD), // norte
-      });
+    // Contorno real: haz de 48 rumbos fijos (índice i → rumbo i·7,5°),
+    // radio del borde de la Totalidad por bisección en cada uno. Se
+    // guardan los radios tal cual — sin ajuste de elipse — y el polígono
+    // se reconstruye en `lib/mapa.ts` con `destino(centro, rumbo_i,
+    // radio_i)`: la sombra rasante conserva su forma de lágrima.
+    const radiosKm: number[] = [];
+    for (let r = 0; r < N_RUMBOS_UMBRA; r++) {
+      radiosKm.push(redondear(radioUmbra(centro, rumboUmbra(r), t), 1));
     }
-
-    // Orientación continua: eje principal de los puntos del borde por
-    // momentos de segundo orden (PCA) respecto a su centroide — nada de
-    // quedarse con el rumbo del haz más largo, que cuantizaba la
-    // orientación a saltos de 360/32 = 11,25° (el "volantazo").
-    const cx = borde.reduce((s, p) => s + p.x, 0) / N_RUMBOS;
-    const cy = borde.reduce((s, p) => s + p.y, 0) / N_RUMBOS;
-    let sxx = 0;
-    let syy = 0;
-    let sxy = 0;
-    for (const p of borde) {
-      const dx = p.x - cx;
-      const dy = p.y - cy;
-      sxx += dx * dx;
-      syy += dy * dy;
-      sxy += dx * dy;
-    }
-    // Ángulo del eje principal desde el este (antihorario) → rumbo desde
-    // el norte (horario), normalizado a [0, 180) por la simetría 180° de
-    // la elipse.
-    const anguloEste = 0.5 * Math.atan2(2 * sxy, sxx - syy);
-    let orientacionGrados = (((90 - anguloEste * RAD2DEG) % 180) + 180) % 180;
-
-    // Semiejes medidos por bisección a lo largo de los ejes principales
-    // (media de los dos radios opuestos de cada eje): continuos entre
-    // instantes, al contrario que el radio máximo/mínimo del haz, que
-    // salta cuando el eje real cae entre dos rumbos.
-    const radiosEje = (rumbo: number): [number, number] => [
-      radioUmbra(centro, rumbo, t),
-      radioUmbra(centro, rumbo + 180, t),
-    ];
-    let [rMayor1, rMayor2] = radiosEje(orientacionGrados);
-    let [rMenor1, rMenor2] = radiosEje(orientacionGrados + 90);
-    let semiejeMayorKm = (rMayor1 + rMayor2) / 2;
-    let semiejeMenorKm = (rMenor1 + rMenor2) / 2;
-    if (semiejeMenorKm > semiejeMayorKm) {
-      [semiejeMayorKm, semiejeMenorKm] = [semiejeMenorKm, semiejeMayorKm];
-      [rMayor1, rMayor2] = [rMenor1, rMenor2];
-      orientacionGrados = (orientacionGrados + 90) % 180;
-    }
-
-    // La sombra rasante no es simétrica: la punta hacia el terminador se
-    // alarga mucho más que el borde trasero. Si la elipse simétrica se
-    // centra en el eje, ese estirón la hincha también hacia atrás (efecto
-    // "despegue"). Se ancla el borde trasero desplazando el centro de la
-    // elipse hacia el lado del radio largo.
-    const desplazamientoKm = (rMayor1 - rMayor2) / 2;
-    const centroElipse =
-      desplazamientoKm >= 0
-        ? destino(centro.lat, centro.lon, orientacionGrados, desplazamientoKm)
-        : destino(
-            centro.lat,
-            centro.lon,
-            orientacionGrados + 180,
-            -desplazamientoKm,
-          );
 
     instantes.push({
       t: t.toISOString(),
       centro: {
-        lat: redondear(centroElipse.lat, 4),
-        lon: redondear(centroElipse.lon, 4),
+        lat: redondear(centro.lat, 4),
+        lon: redondear(centro.lon, 4),
       },
-      semiejeMayorKm: redondear(semiejeMayorKm, 1),
-      semiejeMenorKm: redondear(semiejeMenorKm, 1),
-      orientacionGrados: redondear(orientacionGrados, 1),
+      radiosKm,
     });
 
     estLat = centro.lat;
@@ -607,7 +517,7 @@ function generarUmbra(columnas: ColumnaBanda[]): UmbraJSON {
 
   return {
     metodo:
-      "Centro: mínimo de la separación angular topocéntrica Sol–Luna sobre la superficie (donde el eje de la sombra corta el suelo). Contorno: haz de 32 rumbos desde el centro y bisección de la distancia a la que el Oscurecimiento instantáneo deja de ser 1, ampliando el alcance de búsqueda sin tope artificial (cerca de la puesta de sol la sombra rasante se estira cientos o miles de km). Orientación: eje principal (momentos de segundo orden / PCA) de los 32 puntos del borde proyectados a un plano local en km — continua, en grados desde el norte, mod 180. Semiejes: bisección a lo largo de los ejes principales, media de los dos radios opuestos de cada eje; como el óvalo real se alarga más hacia el terminador, el centro de la elipse se desplaza hacia el radio largo para anclar el borde trasero (sin esto, el estirón rasante hinchaba la elipse también hacia atrás). En el último instante la umbra roza el terminador y el centro deja de avanzar hacia el este. Calculado con lib/eclipse-engine (astronomy-engine).",
+      "Centro: mínimo de la separación angular topocéntrica Sol–Luna sobre la superficie (donde el eje de la sombra corta el suelo). Contorno: haz de 48 rumbos fijos desde el centro (índice i → rumbo i·7,5° desde el norte) y bisección de la distancia a la que el Oscurecimiento instantáneo deja de ser 1, ampliando el alcance de búsqueda sin tope artificial (cerca de la puesta de sol la sombra rasante se estira cientos o miles de km). Los 48 radios se guardan tal cual en radiosKm (0,1 km de resolución), sin ajuste de elipse: el polígono se reconstruye con destino(centro, rumbo_i, radio_i) por gran círculo y conserva la forma real de lágrima de la sombra rasante. En el último instante la umbra roza el terminador y el centro deja de avanzar hacia el este. Calculado con lib/eclipse-engine (astronomy-engine).",
     instantes,
     instantesSinUmbra,
   };
@@ -644,7 +554,9 @@ function main(): void {
 
   console.error("Generando umbra…");
   const umbra = generarUmbra(columnas);
-  writeFileSync(join(dirSalida, "umbra.json"), JSON.stringify(umbra, null, 2));
+  // Compacto (sin sangría): 48 radios por instante multiplican las líneas
+  // del formato indentado sin aportar legibilidad.
+  writeFileSync(join(dirSalida, "umbra.json"), JSON.stringify(umbra));
   console.error(
     `  → umbra.json (${umbra.instantes.length} instantes con umbra, ${umbra.instantesSinUmbra.length} sin)`,
   );

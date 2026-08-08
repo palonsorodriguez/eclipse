@@ -7,8 +7,9 @@
  * - Banda: polígono relleno de la Franja de totalidad a partir de sus
  *   límites norte/sur, y acceso a cada línea.
  * - Isolíneas: selección por nivel y punto de anclaje de la etiqueta.
- * - Umbra: interpolación entre los instantes de `umbra.json` y conversión
- *   de la elipse a un polígono GeoJSON.
+ * - Umbra: interpolación entre los instantes de `umbra.json` (lerp del
+ *   centro y de cada radio del contorno) y reconstrucción del polígono
+ *   real con `destino(centro, rumbo_i, radio_i)`.
  * - Isolínea en vivo: rejilla gruesa de Oscurecimiento máximo calculada al
  *   vuelo con `lib/eclipse-engine` (memoizada por quien la usa) y contorno
  *   a cualquier nivel con d3-contour — la misma técnica que
@@ -27,18 +28,16 @@ import type {
 } from "geojson";
 import { oscurecimientoInstantaneo } from "./eclipse-engine";
 import {
+  destino,
   distanciaKm,
+  puntoEnMultiPolygon,
+  rumboUmbra,
   type BandaTotalidadGeoJSON,
   type InstanteUmbra,
   type IsolineasGeoJSON,
   type LimiteBanda,
 } from "./geodata";
 import type { Municipio } from "./municipios";
-
-/** Kilómetros por grado de arco sobre la esfera media (2πR/360). */
-const KM_POR_GRADO = 111.195;
-
-const DEG2RAD = Math.PI / 180;
 
 // ---------------------------------------------------------------------------
 // Banda de totalidad
@@ -104,22 +103,9 @@ export function puntoEtiquetaIsolinea(
 // ---------------------------------------------------------------------------
 
 /**
- * Interpolación del ángulo de orientación de la elipse por el camino
- * angular corto, respetando su simetría 180°: los extremos se normalizan
- * a [0, 180), se interpola la diferencia mínima módulo 180 (siempre en
- * [−90, 90)) y el resultado vuelve normalizado a [0, 180). De 170° a 10°
- * se pasa por 0°, no por 90°.
- */
-export function interpolarOrientacion(a: number, b: number, f: number): number {
-  const na = ((a % 180) + 180) % 180;
-  const nb = ((b % 180) + 180) % 180;
-  const delta = ((((nb - na + 90) % 180) + 180) % 180) - 90;
-  return (((na + f * delta) % 180) + 180) % 180;
-}
-
-/**
- * La umbra en el instante `t`, interpolando linealmente centro, semiejes y
- * orientación entre los dos instantes de `umbra.json` que lo encierran.
+ * La umbra en el instante `t`, interpolando linealmente el centro y cada
+ * radio del contorno (`radiosKm[i]`, mismo índice de rumbo en ambos
+ * extremos) entre los dos instantes de `umbra.json` que lo encierran.
  * `null` si `t` cae fuera de la ventana con umbra (antes del primer
  * instante o después del último): la Vista Mapa no la dibuja entonces.
  *
@@ -148,49 +134,27 @@ export function interpolarUmbra(
       lat: lerp(a.centro.lat, b.centro.lat),
       lon: lerp(a.centro.lon, b.centro.lon),
     },
-    semiejeMayorKm: lerp(a.semiejeMayorKm, b.semiejeMayorKm),
-    semiejeMenorKm: lerp(a.semiejeMenorKm, b.semiejeMenorKm),
-    orientacionGrados: interpolarOrientacion(
-      a.orientacionGrados,
-      b.orientacionGrados,
-      f,
-    ),
+    radiosKm: a.radiosKm.map((radio, k) => lerp(radio, b.radiosKm[k])),
   };
 }
 
 /**
- * Convierte la elipse de la umbra en un polígono GeoJSON (aproximación
- * plana local: a estas escalas el error es < 1 %).
+ * Contorno real de la umbra como polígono GeoJSON: un vértice por rumbo,
+ * `destino(centro, rumbo_i, radio_i)` por gran círculo — la misma fórmula
+ * con la que el generador midió los radios, así los vértices caen sobre
+ * el borde exacto de la Totalidad (lágrima incluida, sin modelo de
+ * elipse).
  *
- * @param umbra - Elipse a convertir (centro, semiejes en km, orientación).
- * @param pasos - Vértices del anillo (64 da un contorno suave; el anillo
- *   resultante tiene `pasos + 1` puntos porque GeoJSON exige cerrarlo).
- * @param escala - Factor sobre los semiejes: 1 es la elipse tal cual;
+ * @param umbra - Instante (real o interpolado) a convertir.
+ * @param escala - Factor sobre los radios: 1 es el contorno tal cual;
  *   valores mayores generan el halo del borde difuso.
  */
-export function elipseAPoligono(
-  umbra: InstanteUmbra,
-  pasos = 64,
-  escala = 1,
-): Polygon {
-  const { centro, orientacionGrados } = umbra;
-  const a = umbra.semiejeMayorKm * escala;
-  const b = umbra.semiejeMenorKm * escala;
-  const alfa = orientacionGrados * DEG2RAD; // rumbo del semieje mayor
-  const cosLat = Math.cos(centro.lat * DEG2RAD);
-
-  const anillo: Position[] = [];
-  for (let k = 0; k < pasos; k++) {
-    const theta = (k / pasos) * 2 * Math.PI;
-    // Desplazamiento en km: a·cosθ por el semieje mayor (rumbo α) y
-    // b·sinθ por el menor (rumbo α + 90°).
-    const este = a * Math.cos(theta) * Math.sin(alfa) + b * Math.sin(theta) * Math.cos(alfa);
-    const norte = a * Math.cos(theta) * Math.cos(alfa) - b * Math.sin(theta) * Math.sin(alfa);
-    anillo.push([
-      centro.lon + este / (KM_POR_GRADO * cosLat),
-      centro.lat + norte / KM_POR_GRADO,
-    ]);
-  }
+export function contornoUmbra(umbra: InstanteUmbra, escala = 1): Polygon {
+  const { centro, radiosKm } = umbra;
+  const anillo: Position[] = radiosKm.map((radio, i) => {
+    const p = destino(centro.lat, centro.lon, rumboUmbra(i), radio * escala);
+    return [p.lon, p.lat];
+  });
   anillo.push(anillo[0]);
   return { type: "Polygon", coordinates: [anillo] };
 }
@@ -206,32 +170,23 @@ export function trayectoriaUmbra(
 }
 
 /**
- * ¿Cae el punto `[lon, lat]` dentro de la elipse de la umbra (borde
- * incluido)? Misma aproximación plana local que {@link elipseAPoligono}:
- * el punto se proyecta a km este/norte respecto al centro y se rota a los
- * ejes de la elipse.
+ * ¿Cae el punto `[lon, lat]` dentro del contorno de la umbra? Ray casting
+ * sobre el polígono de {@link contornoUmbra} (reutiliza el mismo
+ * `puntoEnMultiPolygon` de `lib/geodata.ts` que usan las isolíneas).
  */
-export function puntoEnElipse(
+export function puntoEnUmbra(
   umbra: InstanteUmbra,
   punto: Position,
 ): boolean {
-  const { centro, orientacionGrados } = umbra;
-  const a = umbra.semiejeMayorKm;
-  const b = umbra.semiejeMenorKm;
-  if (a <= 0 || b <= 0) return false;
-  const alfa = orientacionGrados * DEG2RAD;
-  const cosLat = Math.cos(centro.lat * DEG2RAD);
-  const este = (punto[0] - centro.lon) * KM_POR_GRADO * cosLat;
-  const norte = (punto[1] - centro.lat) * KM_POR_GRADO;
-  // Componentes sobre el semieje mayor (rumbo α) y el menor (α + 90°),
-  // inversa de la parametrización de `elipseAPoligono`.
-  const mayor = este * Math.sin(alfa) + norte * Math.cos(alfa);
-  const menor = este * Math.cos(alfa) - norte * Math.sin(alfa);
-  return (mayor / a) ** 2 + (menor / b) ** 2 <= 1;
+  const poligono = contornoUmbra(umbra);
+  return puntoEnMultiPolygon(punto, {
+    type: "MultiPolygon",
+    coordinates: [poligono.coordinates],
+  });
 }
 
 /**
- * Instante (ms de época) en que la elipse de la umbra toca por primera
+ * Instante (ms de época) en que el contorno de la umbra toca por primera
  * vez el punto `[lon, lat]`, o `null` si no lo toca en toda la serie.
  * Se evalúa sobre los instantes tabulados (paso 30 s): resolución de
  * sobra para el "llega HH:MM" del indicador de borde de la Vista Mapa.
@@ -241,7 +196,7 @@ export function llegadaUmbra(
   punto: Position,
 ): number | null {
   for (const instante of instantes) {
-    if (puntoEnElipse(instante, punto)) return new Date(instante.t).getTime();
+    if (puntoEnUmbra(instante, punto)) return new Date(instante.t).getTime();
   }
   return null;
 }
