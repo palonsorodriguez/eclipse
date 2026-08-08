@@ -15,10 +15,15 @@
  * - basemaps.cartocdn.com (estilo, teselas, glifos) → cache-first con límite
  *   de ~200 entradas y purga simple de las más antiguas.
  *
- * Versionado: subir VERSION invalida todas las cachés viejas en activate.
+ * Versionado: `scripts/generar-sw.mjs` inyecta en VERSION el SHA del commit
+ * en cada build (predev/prebuild) — cada deploy instala un SW nuevo que
+ * purga todas las cachés de la versión anterior en activate. Sin esto, un
+ * sw.js byte-idéntico entre deploys jamás se reinstala y el precache se
+ * queda viejo para siempre (y puede mezclar código de un deploy con datos
+ * de otro, como pasó al cambiar el formato de umbra.json).
  */
 
-const VERSION = "v1";
+const VERSION = "__VERSION__";
 const PREFIJO = "eclipse-";
 const CACHE_SHELL = `${PREFIJO}shell-${VERSION}`;
 const CACHE_DINAMICA = `${PREFIJO}dinamica-${VERSION}`;
@@ -154,7 +159,14 @@ self.addEventListener("fetch", (evento) => {
       evento.respondWith(staleWhileRevalidate(peticion, CACHE_DINAMICA));
       return;
     }
-    // Geodata, iconos, manifest y demás estáticos propios.
+    // Geodata: son datos que cambian entre deploys y el código que los lee
+    // viaja en los chunks — red primero para no servir un formato viejo a
+    // código nuevo (con fallback a caché para el modo offline).
+    if (url.pathname.startsWith("/geodata/")) {
+      evento.respondWith(networkFirst(peticion, CACHE_SHELL));
+      return;
+    }
+    // Iconos, manifest y demás estáticos propios.
     evento.respondWith(staleWhileRevalidate(peticion, CACHE_SHELL));
     return;
   }

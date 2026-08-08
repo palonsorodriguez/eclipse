@@ -12,6 +12,9 @@ out/
 # Worker de MapLibre copiado desde node_modules (scripts/copy-maplibre-worker.mjs)
 public/vendor/
 
+# Service worker generado por build (scripts/generar-sw.mjs, desde sw.template.js)
+public/sw.js
+
 # Sandcastle — runtime local
 .sandcastle/.env
 .sandcastle/logs/
