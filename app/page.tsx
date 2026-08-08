@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import BarraTiempo from "./components/BarraTiempo";
 import BuscadorMunicipio from "./components/BuscadorMunicipio";
 import PanelCircunstancias from "./components/PanelCircunstancias";
+import VistaAstros from "./components/VistaAstros";
 import VistaCielo from "./components/VistaCielo";
 import { VENTANA_TOTALIDAD } from "@/lib/eclipse-2026";
 import type { Municipio } from "@/lib/municipios";
@@ -146,6 +147,7 @@ export default function Home() {
           }
           onSelect={elegirEnMapa}
         />
+        <VistaAstros />
         <Link href="/info" style={{ color: "#ffe9a8", fontSize: "1.05rem" }}>
           Cómo verlo sin dañarte la vista, y de dónde salen los datos
         </Link>
