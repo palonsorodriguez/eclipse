@@ -1,15 +1,33 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import BuscadorMunicipio from "./components/BuscadorMunicipio";
 import PanelCircunstancias from "./components/PanelCircunstancias";
 import VistaCielo from "./components/VistaCielo";
 import { VENTANA_TOTALIDAD } from "@/lib/eclipse-2026";
 import type { Municipio } from "@/lib/municipios";
 
+// MapLibre toca `window` al cargar: la Vista Mapa solo existe en cliente.
+const VistaMapa = dynamic(() => import("./components/VistaMapa"), {
+  ssr: false,
+  loading: () => <p style={{ opacity: 0.6 }}>Cargando la Vista Mapa…</p>,
+});
+
 export default function Home() {
   const [observador, setObservador] = useState<Municipio | null>(null);
+
+  // Clic en la Vista Mapa → Observador en el municipio más cercano.
+  // `lib/municipios` se importa dinámicamente: su JSON (~620 KB) no debe
+  // entrar en el bundle inicial (ver el aviso en ese módulo).
+  const elegirEnMapa = useCallback(async (lat: number, lon: number) => {
+    const [{ municipios }, { municipioMasCercano }] = await Promise.all([
+      import("@/lib/municipios"),
+      import("@/lib/mapa"),
+    ]);
+    setObservador(municipioMasCercano(lat, lon, municipios));
+  }, []);
 
   return (
     <main
@@ -64,6 +82,12 @@ export default function Home() {
         observador={
           observador ? { lat: observador.lat, lon: observador.lon } : undefined
         }
+      />
+      <VistaMapa
+        observador={
+          observador ? { lat: observador.lat, lon: observador.lon } : null
+        }
+        onSelect={elegirEnMapa}
       />
       <Link href="/info" style={{ color: "#ffe9a8", fontSize: "1.05rem" }}>
         Cómo verlo sin dañarte la vista, y de dónde salen los datos

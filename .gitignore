@@ -9,6 +9,9 @@ node_modules/
 out/
 *.tsbuildinfo
 
+# Worker de MapLibre copiado desde node_modules (scripts/copy-maplibre-worker.mjs)
+public/vendor/
+
 # Sandcastle — runtime local
 .sandcastle/.env
 .sandcastle/logs/
