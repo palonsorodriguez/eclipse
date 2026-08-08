@@ -32,7 +32,6 @@ maplibregl.setWorkerUrl("/vendor/maplibre-gl/maplibre-gl-worker.mjs");
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { circunstanciasLocales, type Observador } from "@/lib/eclipse-engine";
 import type { ContactosMs } from "@/lib/linea-tiempo-velocidad";
-import ControlesTiempo, { type MarcaTiempo } from "./ControlesTiempo";
 import {
   cargarBandaTotalidad,
   cargarIsolineas,
@@ -57,7 +56,6 @@ import {
   type RejillaOscurecimiento,
 } from "@/lib/mapa";
 import { useLineaDeTiempo } from "@/lib/useLineaDeTiempo";
-import { T_MIN, T_MAX } from "@/lib/reloj-tiempo";
 
 /** Estilo de teselas: CARTO Positron, libre y sin clave API. */
 const ESTILO_MAPA =
@@ -74,19 +72,6 @@ const LIMITES_MAPA: [[number, number], [number, number]] = [
   [-21, 26],
   [13, 51],
 ];
-
-/** Hitos de país sobre la Línea de tiempo (hora peninsular). */
-const HITOS = [
-  { etiqueta: "Inicio parcial", t: Date.UTC(2026, 7, 12, 17, 34, 0) },
-  { etiqueta: "Totalidad", t: Date.UTC(2026, 7, 12, 18, 29, 0) },
-  { etiqueta: "Fin parcial", t: Date.UTC(2026, 7, 12, 19, 22, 0) },
-] as const;
-
-/** Marcas de los hitos para los controles compartidos, con su hora. */
-const MARCAS_HITOS: readonly MarcaTiempo[] = HITOS.map((hito) => ({
-  etiqueta: `${hito.etiqueta} ${formatoHoraCEST(hito.t)}`,
-  t: hito.t,
-}));
 
 /**
  * Observador por defecto para la curva del resumen y los saltos mientras
@@ -623,10 +608,10 @@ export default function VistaMapa({ observador, onSelect }: VistaMapaProps) {
     };
   }, [lat, lon]);
 
-  // Reloj único de la Línea de tiempo, compartido con la Vista Cielo:
-  // esta vista solo suscribe su pintor de la umbra al bucle común.
-  const linea = useLineaDeTiempo({ contactos, onFrame: pintarUmbra });
-  const { tUi } = linea;
+  // Reloj único de la Línea de tiempo, compartido con la Vista Cielo y la
+  // barra única de la home: esta vista solo suscribe su pintor de la umbra
+  // al bucle común (los controles viven en BarraTiempo, #36).
+  useLineaDeTiempo({ contactos, onFrame: pintarUmbra });
 
   // --- Marcador del Observador ----------------------------------------------
   const marcadorObservadorRef = useRef<maplibregl.Marker | null>(null);
@@ -704,27 +689,16 @@ export default function VistaMapa({ observador, onSelect }: VistaMapaProps) {
         )}
       </div>
 
-      {/* Hora simulada + control de la isolínea en vivo */}
+      {/* Control de la isolínea en vivo (la hora la muestra la barra única) */}
       <div
         style={{
           display: "flex",
           alignItems: "baseline",
-          justifyContent: "space-between",
           flexWrap: "wrap",
           gap: 12,
           marginTop: 12,
         }}
       >
-        <div
-          style={{
-            fontSize: "2.2rem",
-            fontVariantNumeric: "tabular-nums",
-            fontWeight: 600,
-          }}
-        >
-          {formatoHoraCEST(tUi, true)}{" "}
-          <span style={{ fontSize: "0.9rem", opacity: 0.6 }}>CEST</span>
-        </div>
         <label
           style={{
             display: "flex",
@@ -756,15 +730,6 @@ export default function VistaMapa({ observador, onSelect }: VistaMapaProps) {
           {Math.round(progreso * 100)} %
         </p>
       )}
-
-      {/* Línea de tiempo con hitos y controles compartidos */}
-      <ControlesTiempo
-        tMin={T_MIN}
-        tMax={T_MAX}
-        linea={linea}
-        contactos={contactos}
-        marcas={MARCAS_HITOS}
-      />
 
       <p style={{ margin: "10px 0 0", opacity: 0.7, fontSize: "0.85rem" }}>
         Haz clic en el mapa para situar al Observador en el municipio más
