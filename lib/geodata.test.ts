@@ -172,16 +172,25 @@ describe("umbra.json", () => {
     expect(umbra.instantes[0].centro.lon).toBeLessThan(-20);
   });
 
-  test("la umbra avanza de oeste a este hasta rozar el terminador", () => {
-    // En los últimos instantes la umbra roza el terminador (puesta de
-    // sol): el centro deja de estar bien definido como avance hacia el
-    // este y retrocede unos km. La monotonía se exige hasta la longitud
-    // máxima, que debe caer en el último minuto de la serie.
-    const lons = umbra.instantes.map((i) => i.centro.lon);
-    const iMax = lons.indexOf(Math.max(...lons));
-    expect(iMax).toBeGreaterThanOrEqual(lons.length - 4);
-    for (let i = 1; i <= iMax; i++) {
-      expect(lons[i]).toBeGreaterThan(lons[i - 1]);
+  test("el borde trasero de la umbra avanza de oeste a este sin retroceder", () => {
+    // Desde que el centro de la elipse se desplaza para anclar el borde
+    // trasero del óvalo rasante, el invariante físico es ese borde: la
+    // cola de la sombra avanza siempre hacia el este. El centro de la
+    // elipse, en cambio, retrocede legítimamente tras el pico rasante
+    // (la punta queda clavada en el terminador mientras la elipse
+    // encoge), así que no se exige monotonía sobre él.
+    const DEG2RAD = Math.PI / 180;
+    const lonsCola = umbra.instantes.map((i) => {
+      const th = (i.orientacionGrados + 180) * DEG2RAD;
+      const dLonDeg =
+        ((i.semiejeMayorKm / 6371) * Math.sin(th)) /
+        DEG2RAD /
+        Math.cos(i.centro.lat * DEG2RAD);
+      return i.centro.lon + dLonDeg;
+    });
+    // Tolerancia de 0,05° (~4 km): ruido de bisección/redondeo.
+    for (let i = 1; i < lonsCola.length; i++) {
+      expect(lonsCola[i]).toBeGreaterThan(lonsCola[i - 1] - 0.05);
     }
   });
 

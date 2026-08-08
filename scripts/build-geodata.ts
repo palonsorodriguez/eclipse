@@ -53,7 +53,9 @@
  *    orden / PCA) de los 32 puntos del borde proyectados a un plano local
  *    en km — continua, no cuantizada al rumbo ganador del haz — y los
  *    semiejes se miden por bisección a lo largo de los ejes principales
- *    (media de los dos radios opuestos de cada eje). Los instantes en los
+ *    (media de los dos radios opuestos de cada eje), y el centro de la
+ *    elipse se desplaza hacia el radio largo para anclar el borde trasero
+ *    del óvalo asimétrico rasante. Los instantes en los
  *    que la umbra no toca la superficie con el Sol sobre el horizonte
  *    (antes de entrar por el Atlántico o tras la puesta de sol en el
  *    Mediterráneo) se omiten y quedan anotados en `instantesSinUmbra`.
@@ -552,18 +554,42 @@ function generarUmbra(columnas: ColumnaBanda[]): UmbraJSON {
     // (media de los dos radios opuestos de cada eje): continuos entre
     // instantes, al contrario que el radio máximo/mínimo del haz, que
     // salta cuando el eje real cae entre dos rumbos.
-    const radioEje = (rumbo: number): number =>
-      (radioUmbra(centro, rumbo, t) + radioUmbra(centro, rumbo + 180, t)) / 2;
-    let semiejeMayorKm = radioEje(orientacionGrados);
-    let semiejeMenorKm = radioEje(orientacionGrados + 90);
+    const radiosEje = (rumbo: number): [number, number] => [
+      radioUmbra(centro, rumbo, t),
+      radioUmbra(centro, rumbo + 180, t),
+    ];
+    let [rMayor1, rMayor2] = radiosEje(orientacionGrados);
+    let [rMenor1, rMenor2] = radiosEje(orientacionGrados + 90);
+    let semiejeMayorKm = (rMayor1 + rMayor2) / 2;
+    let semiejeMenorKm = (rMenor1 + rMenor2) / 2;
     if (semiejeMenorKm > semiejeMayorKm) {
       [semiejeMayorKm, semiejeMenorKm] = [semiejeMenorKm, semiejeMayorKm];
+      [rMayor1, rMayor2] = [rMenor1, rMenor2];
       orientacionGrados = (orientacionGrados + 90) % 180;
     }
 
+    // La sombra rasante no es simétrica: la punta hacia el terminador se
+    // alarga mucho más que el borde trasero. Si la elipse simétrica se
+    // centra en el eje, ese estirón la hincha también hacia atrás (efecto
+    // "despegue"). Se ancla el borde trasero desplazando el centro de la
+    // elipse hacia el lado del radio largo.
+    const desplazamientoKm = (rMayor1 - rMayor2) / 2;
+    const centroElipse =
+      desplazamientoKm >= 0
+        ? destino(centro.lat, centro.lon, orientacionGrados, desplazamientoKm)
+        : destino(
+            centro.lat,
+            centro.lon,
+            orientacionGrados + 180,
+            -desplazamientoKm,
+          );
+
     instantes.push({
       t: t.toISOString(),
-      centro: { lat: redondear(centro.lat, 4), lon: redondear(centro.lon, 4) },
+      centro: {
+        lat: redondear(centroElipse.lat, 4),
+        lon: redondear(centroElipse.lon, 4),
+      },
       semiejeMayorKm: redondear(semiejeMayorKm, 1),
       semiejeMenorKm: redondear(semiejeMenorKm, 1),
       orientacionGrados: redondear(orientacionGrados, 1),
@@ -581,7 +607,7 @@ function generarUmbra(columnas: ColumnaBanda[]): UmbraJSON {
 
   return {
     metodo:
-      "Centro: mínimo de la separación angular topocéntrica Sol–Luna sobre la superficie (donde el eje de la sombra corta el suelo). Contorno: haz de 32 rumbos desde el centro y bisección de la distancia a la que el Oscurecimiento instantáneo deja de ser 1, ampliando el alcance de búsqueda sin tope artificial (cerca de la puesta de sol la sombra rasante se estira cientos o miles de km). Orientación: eje principal (momentos de segundo orden / PCA) de los 32 puntos del borde proyectados a un plano local en km — continua, en grados desde el norte, mod 180. Semiejes: bisección a lo largo de los ejes principales, media de los dos radios opuestos de cada eje (la elipse es una aproximación simétrica de un óvalo que en realidad se alarga más hacia el terminador). En el último instante la umbra roza el terminador y el centro deja de avanzar hacia el este. Calculado con lib/eclipse-engine (astronomy-engine).",
+      "Centro: mínimo de la separación angular topocéntrica Sol–Luna sobre la superficie (donde el eje de la sombra corta el suelo). Contorno: haz de 32 rumbos desde el centro y bisección de la distancia a la que el Oscurecimiento instantáneo deja de ser 1, ampliando el alcance de búsqueda sin tope artificial (cerca de la puesta de sol la sombra rasante se estira cientos o miles de km). Orientación: eje principal (momentos de segundo orden / PCA) de los 32 puntos del borde proyectados a un plano local en km — continua, en grados desde el norte, mod 180. Semiejes: bisección a lo largo de los ejes principales, media de los dos radios opuestos de cada eje; como el óvalo real se alarga más hacia el terminador, el centro de la elipse se desplaza hacia el radio largo para anclar el borde trasero (sin esto, el estirón rasante hinchaba la elipse también hacia atrás). En el último instante la umbra roza el terminador y el centro deja de avanzar hacia el este. Calculado con lib/eclipse-engine (astronomy-engine).",
     instantes,
     instantesSinUmbra,
   };
