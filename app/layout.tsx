@@ -1,6 +1,7 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { Inter, Space_Grotesk } from "next/font/google";
+import RegistroSW from "./components/RegistroSW";
 
 const inter = Inter({ subsets: ["latin"], variable: "--fuente-texto" });
 const spaceGrotesk = Space_Grotesk({
@@ -12,6 +13,11 @@ export const metadata: Metadata = {
   title: "Eclipse — 12 de agosto de 2026",
   description:
     "Simulador del eclipse solar total del 12 de agosto de 2026 visto desde cualquier municipio de España.",
+  manifest: "/manifest.webmanifest",
+};
+
+export const viewport: Viewport = {
+  themeColor: "#0b0d17",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
@@ -26,6 +32,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
           minHeight: "100vh",
         }}
       >
+        <RegistroSW />
         {children}
       </body>
     </html>

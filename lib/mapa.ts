@@ -104,12 +104,17 @@ export function puntoEtiquetaIsolinea(
 // ---------------------------------------------------------------------------
 
 /**
- * Interpolación del ángulo de orientación (grados, mod 180) por el camino
- * más corto: de 170° a 10° se pasa por 0°, no por 90°.
+ * Interpolación del ángulo de orientación de la elipse por el camino
+ * angular corto, respetando su simetría 180°: los extremos se normalizan
+ * a [0, 180), se interpola la diferencia mínima módulo 180 (siempre en
+ * [−90, 90)) y el resultado vuelve normalizado a [0, 180). De 170° a 10°
+ * se pasa por 0°, no por 90°.
  */
-function interpolarOrientacion(a: number, b: number, f: number): number {
-  const delta = ((((b - a + 90) % 180) + 180) % 180) - 90;
-  return (((a + f * delta) % 180) + 180) % 180;
+export function interpolarOrientacion(a: number, b: number, f: number): number {
+  const na = ((a % 180) + 180) % 180;
+  const nb = ((b % 180) + 180) % 180;
+  const delta = ((((nb - na + 90) % 180) + 180) % 180) - 90;
+  return (((na + f * delta) % 180) + 180) % 180;
 }
 
 /**
@@ -198,6 +203,47 @@ export function trayectoriaUmbra(
     type: "LineString",
     coordinates: instantes.map((i) => [i.centro.lon, i.centro.lat]),
   };
+}
+
+/**
+ * ¿Cae el punto `[lon, lat]` dentro de la elipse de la umbra (borde
+ * incluido)? Misma aproximación plana local que {@link elipseAPoligono}:
+ * el punto se proyecta a km este/norte respecto al centro y se rota a los
+ * ejes de la elipse.
+ */
+export function puntoEnElipse(
+  umbra: InstanteUmbra,
+  punto: Position,
+): boolean {
+  const { centro, orientacionGrados } = umbra;
+  const a = umbra.semiejeMayorKm;
+  const b = umbra.semiejeMenorKm;
+  if (a <= 0 || b <= 0) return false;
+  const alfa = orientacionGrados * DEG2RAD;
+  const cosLat = Math.cos(centro.lat * DEG2RAD);
+  const este = (punto[0] - centro.lon) * KM_POR_GRADO * cosLat;
+  const norte = (punto[1] - centro.lat) * KM_POR_GRADO;
+  // Componentes sobre el semieje mayor (rumbo α) y el menor (α + 90°),
+  // inversa de la parametrización de `elipseAPoligono`.
+  const mayor = este * Math.sin(alfa) + norte * Math.cos(alfa);
+  const menor = este * Math.cos(alfa) - norte * Math.sin(alfa);
+  return (mayor / a) ** 2 + (menor / b) ** 2 <= 1;
+}
+
+/**
+ * Instante (ms de época) en que la elipse de la umbra toca por primera
+ * vez el punto `[lon, lat]`, o `null` si no lo toca en toda la serie.
+ * Se evalúa sobre los instantes tabulados (paso 30 s): resolución de
+ * sobra para el "llega HH:MM" del indicador de borde de la Vista Mapa.
+ */
+export function llegadaUmbra(
+  instantes: readonly InstanteUmbra[],
+  punto: Position,
+): number | null {
+  for (const instante of instantes) {
+    if (puntoEnElipse(instante, punto)) return new Date(instante.t).getTime();
+  }
+  return null;
 }
 
 // ---------------------------------------------------------------------------
