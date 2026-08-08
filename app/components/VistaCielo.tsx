@@ -12,15 +12,18 @@
  * - Reloj: `lib/reloj-tiempo.ts` vía `useLineaDeTiempo` — el reloj único
  *   compartido con la Vista Mapa; su bucle dibuja cada frame directamente
  *   en el canvas.
+ *
+ * La vista no monta controles propios: la barra de tiempo única
+ * (`BarraTiempo`, #36) vive en `app/page.tsx` y ya muestra la hora CEST y
+ * el % de Oscurecimiento; aquí solo queda la etiqueta de fase sobre el
+ * canvas (TOTALIDAD/Parcial…).
  */
 
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { createEclipseEngine, type Observador } from "@/lib/eclipse-engine";
 import { configEscena, dibujarEscena } from "@/lib/cielo-draw";
 import { useLineaDeTiempo } from "@/lib/useLineaDeTiempo";
-import { T_MIN, T_MAX } from "@/lib/reloj-tiempo";
 import type { ContactosMs } from "@/lib/linea-tiempo-velocidad";
-import ControlesTiempo from "./ControlesTiempo";
 import { brilloEscena } from "@/lib/cielo-render";
 import {
   cuerposCielo,
@@ -31,18 +34,11 @@ import {
 /** Ferrol, por defecto hasta que el buscador de municipios esté integrado. */
 const FERROL: Observador = { lat: 43.4832, lon: -8.2369 };
 
-const CEST_OFFSET_MS = 2 * 3600_000;
-
 /** Lista vacía estable para cuando el cielo es demasiado brillante. */
 const SIN_CUERPOS: CuerpoCielo[] = [];
 
 const ANCHO_CANVAS = 960;
 const ALTO_CANVAS = 540;
-
-function formatoCEST(tMs: number, conSegundos = true): string {
-  const iso = new Date(tMs + CEST_OFFSET_MS).toISOString();
-  return iso.slice(11, conSegundos ? 19 : 16);
-}
 
 function formatoPorcentaje(fraccion: number, decimales = 1): string {
   return (fraccion * 100).toFixed(decimales).replace(".", ",");
@@ -124,8 +120,8 @@ export default function VistaCielo({ observador = FERROL }: VistaCieloProps) {
     [cfg, engine, enTotalidad, c2Ms, c3Ms, obtenerCuerpos],
   );
 
-  // Contactos locales en ms: alimentan la curva del modo resumen y los
-  // botones de salto de los controles compartidos.
+  // Contactos locales en ms: alimentan la curva del modo resumen del
+  // reloj compartido (las marcas de salto las pinta BarraTiempo).
   const contactos = useMemo(
     (): ContactosMs => ({
       c1: circ.c1.instante.getTime(),
@@ -139,13 +135,7 @@ export default function VistaCielo({ observador = FERROL }: VistaCieloProps) {
 
   // Reloj único de la Línea de tiempo: esta vista se suscribe con su
   // pintor; el bucle común pinta el canvas en cada frame.
-  const linea = useLineaDeTiempo({ contactos, onFrame: dibujar });
-  const { tUi } = linea;
-
-  const oscuracionUi = useMemo(
-    () => engine.obscurationAt(new Date(tUi)),
-    [engine, tUi],
-  );
+  const { tUi } = useLineaDeTiempo({ contactos, onFrame: dibujar });
 
   // Nitidez en pantallas de alta densidad; repinta tras redimensionar
   // (cambiar el tamaño del canvas lo deja en blanco hasta el frame
@@ -164,18 +154,6 @@ export default function VistaCielo({ observador = FERROL }: VistaCieloProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [dibujar]);
 
-  // Marcas de Contactos sobre la Línea de tiempo.
-  const marcas = useMemo(() => {
-    const todas: Array<{ etiqueta: string; t: number }> = [
-      { etiqueta: "C1", t: circ.c1.instante.getTime() },
-      ...(circ.c2 ? [{ etiqueta: "C2", t: circ.c2.instante.getTime() }] : []),
-      { etiqueta: "Máx", t: circ.maximo.instante.getTime() },
-      ...(circ.c3 ? [{ etiqueta: "C3", t: circ.c3.instante.getTime() }] : []),
-      { etiqueta: "C4", t: circ.c4.instante.getTime() },
-    ];
-    return todas.filter((m) => m.t >= T_MIN && m.t <= T_MAX);
-  }, [circ]);
-
   const fase = (() => {
     if (enTotalidad(tUi)) return "TOTALIDAD";
     if (tUi < circ.c1.instante.getTime()) return "Antes del eclipse";
@@ -191,48 +169,33 @@ export default function VistaCielo({ observador = FERROL }: VistaCieloProps) {
       <h2 style={{ textAlign: "left", fontSize: "1.3rem", marginBottom: 8 }}>
         Vista Cielo
       </h2>
-      <canvas
-        ref={canvasRef}
-        role="img"
-        aria-label="Simulación del cielo durante el eclipse"
-        style={{
-          width: "100%",
-          aspectRatio: `${ANCHO_CANVAS} / ${ALTO_CANVAS}`,
-          display: "block",
-          borderRadius: 8,
-          background: "#0b0d17",
-        }}
-      />
-
-      {/* HUD: hora CEST, oscurecimiento y fase */}
-      <div
-        style={{
-          display: "flex",
-          alignItems: "baseline",
-          justifyContent: "space-between",
-          flexWrap: "wrap",
-          gap: 12,
-          marginTop: 12,
-        }}
-      >
-        <div
+      <div style={{ position: "relative" }}>
+        <canvas
+          ref={canvasRef}
+          role="img"
+          aria-label="Simulación del cielo durante el eclipse"
           style={{
-            fontSize: "2.2rem",
-            fontVariantNumeric: "tabular-nums",
-            fontWeight: 600,
+            width: "100%",
+            aspectRatio: `${ANCHO_CANVAS} / ${ALTO_CANVAS}`,
+            display: "block",
+            borderRadius: 8,
+            background: "#0b0d17",
           }}
-        >
-          {formatoCEST(tUi)}{" "}
-          <span style={{ fontSize: "0.9rem", opacity: 0.6 }}>CEST</span>
-        </div>
-        <div style={{ fontSize: "1.2rem", fontVariantNumeric: "tabular-nums" }}>
-          Oscurecimiento: <strong>{formatoPorcentaje(oscuracionUi)} %</strong>
-        </div>
+        />
+        {/* Etiqueta de fase sobre el canvas; la hora y el % los muestra
+            la barra de tiempo única. */}
         <div
           style={{
-            fontSize: "1rem",
+            position: "absolute",
+            left: 10,
+            bottom: 10,
+            padding: "0.25rem 0.7rem",
+            borderRadius: 999,
+            background: "rgba(11, 13, 23, 0.65)",
+            fontSize: "0.9rem",
             fontWeight: fase === "TOTALIDAD" ? 700 : 400,
-            color: fase === "TOTALIDAD" ? "#ffd98a" : "inherit",
+            color: fase === "TOTALIDAD" ? "#ffd98a" : "#dcd9e8",
+            pointerEvents: "none",
           }}
         >
           {fase}
@@ -245,15 +208,6 @@ export default function VistaCielo({ observador = FERROL }: VistaCieloProps) {
           totalidad aquí
         </p>
       )}
-
-      {/* Línea de tiempo con marcas de Contactos y controles compartidos */}
-      <ControlesTiempo
-        tMin={T_MIN}
-        tMax={T_MAX}
-        linea={linea}
-        contactos={contactos}
-        marcas={marcas}
-      />
     </section>
   );
 }
