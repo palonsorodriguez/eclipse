@@ -9,7 +9,7 @@
  *
  * - Datos estáticos: `lib/geodata.ts` (banda, isolíneas, umbra cada 30 s).
  * - Geometría pura: `lib/mapa.ts` (polígono de la banda, interpolación de
- *   la umbra, elipse → GeoJSON, rejilla en vivo + contorno d3).
+ *   la umbra, contorno real → GeoJSON, rejilla en vivo + contorno d3).
  * - Reloj: `lib/useLineaDeTiempo.ts`, el mismo patrón que la Vista Cielo.
  *
  * Este componente se importa con `next/dynamic` y `ssr: false` desde
@@ -45,7 +45,7 @@ import {
 import {
   calcularRejillaOscurecimiento,
   contornoNivel,
-  elipseAPoligono,
+  contornoUmbra,
   formatoHoraCEST,
   interpolarUmbra,
   lineaBanda,
@@ -475,8 +475,8 @@ export default function VistaMapa({ observador, onSelect }: VistaMapaProps) {
   // --- Indicador de borde: la sombra se ve venir aunque esté fuera ----------
   // Punto de referencia de la distancia y la hora de llegada: el Observador
   // si está definido; si no, el centro del encuadre actual. "Llega" es el
-  // primer instante tabulado (paso 30 s) en que la elipse de la umbra toca
-  // ese punto (`llegadaUmbra` en lib/mapa.ts).
+  // primer instante tabulado (paso 30 s) en que el contorno de la umbra
+  // toca ese punto (`llegadaUmbra` en lib/mapa.ts).
   const observadorRef = useRef(observador);
   observadorRef.current = observador;
   const indicadorRef = useRef<HTMLDivElement | null>(null);
@@ -592,16 +592,16 @@ export default function VistaMapa({ observador, onSelect }: VistaMapaProps) {
       fuente.setData({
         type: "FeatureCollection",
         features: [
-          // Halo exterior: borde difuso barato (elipse ampliada, tenue).
+          // Halo exterior: borde difuso barato (contorno ampliado, tenue).
           {
             type: "Feature",
             properties: { opacidad: 0.14 },
-            geometry: elipseAPoligono(umbra, 64, 1.18),
+            geometry: contornoUmbra(umbra, 1.18),
           },
           {
             type: "Feature",
             properties: { opacidad: 0.45 },
-            geometry: elipseAPoligono(umbra),
+            geometry: contornoUmbra(umbra),
           },
         ],
       });

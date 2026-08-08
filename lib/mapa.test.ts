@@ -1,11 +1,18 @@
 /**
  * Tests de lib/mapa: la lógica pura de la Vista Mapa — interpolación de la
- * umbra, elipse → polígono GeoJSON, polígono de la banda, selección de
- * isolíneas, contorno en vivo y municipio más cercano.
+ * umbra, contorno real → polígono GeoJSON, polígono de la banda, selección
+ * de isolíneas, contorno en vivo y municipio más cercano.
  *
  * Los datos reales de `public/geodata/` se leen de disco como en
  * `lib/geodata.test.ts`; la interpolación de la umbra se prueba además con
  * instantes sintéticos para fijar los casos límite.
+ *
+ * Nota (ticket #31): los tests de `interpolarOrientacion`, `elipseAPoligono`
+ * y `puntoEnElipse` se eliminaron con el modelo de elipse: el contorno ya
+ * son los radios medidos por rumbo y no quedan orientación ni semiejes que
+ * interpolar. Los sustituyen los tests de `contornoUmbra` y `puntoEnUmbra`,
+ * que además fijan lo que la elipse no podía garantizar (la lágrima
+ * asimétrica, Oviedo dentro en su Máximo, Sevilla siempre fuera).
  */
 
 import { readFileSync } from "node:fs";
@@ -13,8 +20,11 @@ import { join } from "node:path";
 import type { MultiPolygon } from "geojson";
 import { describe, expect, test } from "vitest";
 import {
+  destino,
   distanciaKm,
+  N_RUMBOS_UMBRA,
   puntoEnMultiPolygon,
+  rumboUmbra,
   type BandaTotalidadGeoJSON,
   type InstanteUmbra,
   type IsolineasGeoJSON,
@@ -22,15 +32,14 @@ import {
 } from "./geodata";
 import {
   contornoNivel,
-  elipseAPoligono,
+  contornoUmbra,
   formatoHoraCEST,
-  interpolarOrientacion,
   interpolarUmbra,
   llegadaUmbra,
   maxOscurecimientoEn,
   municipioMasCercano,
   poligonoBanda,
-  puntoEnElipse,
+  puntoEnUmbra,
   puntoEtiquetaIsolinea,
   seleccionarIsolinea,
   trayectoriaUmbra,
@@ -48,69 +57,51 @@ const banda = leerFichero<BandaTotalidadGeoJSON>("banda-totalidad.geojson");
 const isolineas = leerFichero<IsolineasGeoJSON>("isolineas.geojson");
 const umbra = leerFichero<UmbraJSON>("umbra.json");
 
+/** Puntos de referencia, en orden GeoJSON [lon, lat]. */
+const OVIEDO: [number, number] = [-5.8593, 43.3614];
+const SEVILLA: [number, number] = [-5.9845, 37.3891];
+
+/**
+ * Radios sintéticos dependientes del rumbo (`base + i·paso`): si la
+ * interpolación mezclara índices, el error sería visible.
+ */
+function radiosLineales(base: number, paso: number): number[] {
+  return Array.from({ length: N_RUMBOS_UMBRA }, (_, i) => base + i * paso);
+}
+
 /** Dos instantes sintéticos separados 30 s, con movimiento en todo. */
 const INSTANTES: InstanteUmbra[] = [
   {
     t: "2026-08-12T18:20:00.000Z",
     centro: { lat: 48, lon: -13 },
-    semiejeMayorKm: 200,
-    semiejeMenorKm: 60,
-    orientacionGrados: 90,
+    radiosKm: radiosLineales(100, 1),
   },
   {
     t: "2026-08-12T18:20:30.000Z",
     centro: { lat: 47, lon: -12 },
-    semiejeMayorKm: 220,
-    semiejeMenorKm: 64,
-    orientacionGrados: 110,
+    radiosKm: radiosLineales(200, 3),
   },
 ];
 
-describe("interpolarOrientacion", () => {
-  test("interpola por el camino angular corto módulo 180", () => {
-    // De 178° a 2° la diferencia mínima es +4° (cruza el 0), no −176°.
-    expect(interpolarOrientacion(178, 2, 0.5)).toBeCloseTo(0, 6);
-    expect(interpolarOrientacion(178, 2, 0.25)).toBeCloseTo(179, 6);
-    expect(interpolarOrientacion(178, 2, 0.75)).toBeCloseTo(1, 6);
-    // Y de 2° a 178° cruza el 0 en sentido contrario.
-    expect(interpolarOrientacion(2, 178, 0.5)).toBeCloseTo(0, 6);
-    expect(interpolarOrientacion(170, 10, 0.5)).toBeCloseTo(0, 6);
-    // Sin cruce: interpolación lineal normal.
-    expect(interpolarOrientacion(90, 110, 0.5)).toBeCloseTo(100, 6);
-    expect(interpolarOrientacion(74.7, 110, 0.5)).toBeCloseTo(92.35, 6);
-  });
-
-  test("respeta los extremos y devuelve siempre [0, 180)", () => {
-    expect(interpolarOrientacion(178, 2, 0)).toBeCloseTo(178, 6);
-    expect(interpolarOrientacion(178, 2, 1)).toBeCloseTo(2, 6);
-    const cruce = interpolarOrientacion(179, 1, 0.5);
-    expect(cruce).toBeGreaterThanOrEqual(0);
-    expect(cruce).toBeLessThan(180);
-    expect(cruce).toBeCloseTo(0, 6);
-  });
-
-  test("normaliza entradas fuera de [0, 180) por la simetría de la elipse", () => {
-    // 190° ≡ 10°: una elipse orientada a 190° es la misma que a 10°.
-    expect(interpolarOrientacion(190, 10, 0.5)).toBeCloseTo(10, 6);
-    expect(interpolarOrientacion(-10, 10, 0.5)).toBeCloseTo(0, 6);
-  });
-});
-
 describe("interpolarUmbra", () => {
-  test("en el punto medio interpola centro, semiejes y orientación", () => {
+  test("en el punto medio interpola el centro y cada radio por su índice", () => {
     const media = interpolarUmbra(INSTANTES, new Date("2026-08-12T18:20:15Z"));
     expect(media).not.toBeNull();
     expect(media!.centro.lat).toBeCloseTo(47.5, 6);
     expect(media!.centro.lon).toBeCloseTo(-12.5, 6);
-    expect(media!.semiejeMayorKm).toBeCloseTo(210, 6);
-    expect(media!.semiejeMenorKm).toBeCloseTo(62, 6);
-    expect(media!.orientacionGrados).toBeCloseTo(100, 6);
+    expect(media!.radiosKm).toHaveLength(N_RUMBOS_UMBRA);
+    media!.radiosKm.forEach((radio, i) => {
+      // lerp(100 + i, 200 + 3i, 0.5) = 150 + 2i.
+      expect(radio).toBeCloseTo(150 + 2 * i, 6);
+    });
   });
 
   test("en un instante exacto devuelve ese instante", () => {
     const exacto = interpolarUmbra(INSTANTES, new Date(INSTANTES[1].t));
     expect(exacto!.centro).toEqual(INSTANTES[1].centro);
-    expect(exacto!.orientacionGrados).toBeCloseTo(110, 6);
+    exacto!.radiosKm.forEach((radio, i) => {
+      expect(radio).toBeCloseTo(INSTANTES[1].radiosKm[i], 6);
+    });
   });
 
   test("fuera de la ventana con umbra devuelve null", () => {
@@ -121,15 +112,6 @@ describe("interpolarUmbra", () => {
       interpolarUmbra(INSTANTES, new Date("2026-08-12T18:20:31Z")),
     ).toBeNull();
     expect(interpolarUmbra([], new Date("2026-08-12T18:20:00Z"))).toBeNull();
-  });
-
-  test("la orientación cruza el 0 por el camino corto (170° → 10°)", () => {
-    const giro: InstanteUmbra[] = [
-      { ...INSTANTES[0], orientacionGrados: 170 },
-      { ...INSTANTES[1], orientacionGrados: 10 },
-    ];
-    const media = interpolarUmbra(giro, new Date("2026-08-12T18:20:15Z"));
-    expect(media!.orientacionGrados).toBeCloseTo(0, 6);
   });
 
   test("con los datos reales, la umbra existe a las 18:27 UT y no a las 17:40", () => {
@@ -152,102 +134,138 @@ describe("interpolarUmbra", () => {
       interpolarUmbra(umbra.instantes, new Date("2026-08-12T17:40:00Z")),
     ).toBeNull();
   });
+
+  test("los radios interpolan de forma continua entre dos keyframes reales", () => {
+    // Dos instantes consecutivos con la sombra sobre la península.
+    const iA = umbra.instantes.findIndex((i) => i.centro.lon > -6);
+    expect(iA).toBeGreaterThan(0);
+    const a = umbra.instantes[iA];
+    const b = umbra.instantes[iA + 1];
+    const tA = new Date(a.t).getTime();
+    const tB = new Date(b.t).getTime();
+
+    // Muestras cada 5 s: cada radio queda entre sus dos extremos y avanza
+    // en pasos proporcionales (1/6 del salto total), sin discontinuidades.
+    const N_MUESTRAS = 6;
+    let previo = a.radiosKm;
+    for (let m = 1; m <= N_MUESTRAS; m++) {
+      const t = tA + (m / N_MUESTRAS) * (tB - tA);
+      const u = interpolarUmbra(umbra.instantes, new Date(t));
+      expect(u).not.toBeNull();
+      u!.radiosKm.forEach((radio, k) => {
+        const lo = Math.min(a.radiosKm[k], b.radiosKm[k]);
+        const hi = Math.max(a.radiosKm[k], b.radiosKm[k]);
+        expect(radio).toBeGreaterThanOrEqual(lo - 1e-9);
+        expect(radio).toBeLessThanOrEqual(hi + 1e-9);
+        const saltoMaximo =
+          Math.abs(b.radiosKm[k] - a.radiosKm[k]) / N_MUESTRAS + 1e-6;
+        expect(Math.abs(radio - previo[k])).toBeLessThanOrEqual(saltoMaximo);
+      });
+      previo = u!.radiosKm;
+    }
+    // La última muestra coincide con el keyframe de llegada.
+    previo.forEach((radio, k) => {
+      expect(radio).toBeCloseTo(b.radiosKm[k], 6);
+    });
+  });
 });
 
-describe("elipseAPoligono", () => {
-  const elipse: InstanteUmbra = {
+describe("contornoUmbra", () => {
+  const instante: InstanteUmbra = {
     t: "2026-08-12T18:25:00.000Z",
     centro: { lat: 43, lon: -6 },
-    semiejeMayorKm: 250,
-    semiejeMenorKm: 60,
-    orientacionGrados: 100,
+    radiosKm: radiosLineales(60, 5),
   };
 
-  test("produce un anillo cerrado que contiene el centro", () => {
-    const poligono = elipseAPoligono(elipse);
+  test("produce un anillo cerrado de un vértice por rumbo que contiene el centro", () => {
+    const poligono = contornoUmbra(instante);
     const anillo = poligono.coordinates[0];
+    expect(anillo).toHaveLength(N_RUMBOS_UMBRA + 1);
     expect(anillo[0]).toEqual(anillo[anillo.length - 1]);
     expect(
       puntoEnMultiPolygon(
-        [elipse.centro.lon, elipse.centro.lat],
+        [instante.centro.lon, instante.centro.lat],
         { type: "MultiPolygon", coordinates: [poligono.coordinates] },
       ),
     ).toBe(true);
   });
 
-  test("los vértices distan del centro entre el semieje menor y el mayor", () => {
-    const anillo = elipseAPoligono(elipse).coordinates[0];
-    const centro = [elipse.centro.lon, elipse.centro.lat];
-    const distancias = anillo.map((p) => distanciaKm(centro, p));
-    // Tolerancia del 3 %: aproximación plana local + esfera media.
-    expect(Math.max(...distancias)).toBeCloseTo(elipse.semiejeMayorKm, -1);
-    expect(Math.min(...distancias)).toBeCloseTo(elipse.semiejeMenorKm, -1);
-    for (const d of distancias) {
-      expect(d).toBeGreaterThan(elipse.semiejeMenorKm * 0.97);
-      expect(d).toBeLessThan(elipse.semiejeMayorKm * 1.03);
+  test("cada vértice dista del centro exactamente su radio", () => {
+    const anillo = contornoUmbra(instante).coordinates[0];
+    const centro = [instante.centro.lon, instante.centro.lat];
+    for (let i = 0; i < N_RUMBOS_UMBRA; i++) {
+      // `destino` y `distanciaKm` son inversos sobre la misma esfera
+      // media: la coincidencia es exacta salvo redondeo flotante.
+      expect(Math.abs(distanciaKm(centro, anillo[i]) - instante.radiosKm[i]))
+        .toBeLessThan(1e-6);
     }
   });
 
-  test("la escala amplía la elipse (halo del borde difuso)", () => {
-    const halo = elipseAPoligono(elipse, 64, 1.2).coordinates[0];
-    const centro = [elipse.centro.lon, elipse.centro.lat];
-    const maxHalo = Math.max(...halo.map((p) => distanciaKm(centro, p)));
-    expect(maxHalo).toBeGreaterThan(elipse.semiejeMayorKm * 1.15);
+  test("la escala amplía el contorno (halo del borde difuso)", () => {
+    const centro = [instante.centro.lon, instante.centro.lat];
+    const halo = contornoUmbra(instante, 1.18).coordinates[0];
+    for (let i = 0; i < N_RUMBOS_UMBRA; i++) {
+      expect(distanciaKm(centro, halo[i]))
+        .toBeCloseTo(instante.radiosKm[i] * 1.18, 6);
+    }
+  });
+
+  test("representa la lágrima asimétrica que la elipse no podía", () => {
+    // Punta de 500 km solo hacia el este (rumbos 82,5°–97,5°, índices
+    // 11–13): el contorno debe contener un punto a 400 km al este pero
+    // no su simétrico al oeste — imposible con una elipse centrada.
+    const radios = Array<number>(N_RUMBOS_UMBRA).fill(60);
+    radios[11] = 500;
+    radios[12] = 500;
+    radios[13] = 500;
+    const lagrima: InstanteUmbra = { ...instante, radiosKm: radios };
+    const este = destino(43, -6, 90, 400);
+    const oeste = destino(43, -6, 270, 400);
+    expect(puntoEnUmbra(lagrima, [este.lon, este.lat])).toBe(true);
+    expect(puntoEnUmbra(lagrima, [oeste.lon, oeste.lat])).toBe(false);
   });
 });
 
-describe("puntoEnElipse y llegadaUmbra", () => {
-  /** Elipse orientada al este (90°): 200 km E–O, 60 km N–S. */
-  const elipse: InstanteUmbra = {
+describe("puntoEnUmbra y llegadaUmbra", () => {
+  /** Contorno casi circular de ~80 km de radio. */
+  const instante: InstanteUmbra = {
     t: "2026-08-12T18:25:00.000Z",
     centro: { lat: 43, lon: -6 },
-    semiejeMayorKm: 200,
-    semiejeMenorKm: 60,
-    orientacionGrados: 90,
+    radiosKm: Array<number>(N_RUMBOS_UMBRA).fill(80),
   };
 
   test("el centro está dentro y los puntos lejanos fuera", () => {
-    expect(puntoEnElipse(elipse, [-6, 43])).toBe(true);
-    expect(puntoEnElipse(elipse, [0, 43])).toBe(false);
-    expect(puntoEnElipse(elipse, [-6, 45])).toBe(false);
+    expect(puntoEnUmbra(instante, [-6, 43])).toBe(true);
+    expect(puntoEnUmbra(instante, [0, 43])).toBe(false);
+    expect(puntoEnUmbra(instante, [-6, 45])).toBe(false);
   });
 
-  test("distingue el semieje mayor del menor según la orientación", () => {
-    // 150 km al este (dentro del semieje mayor de 200 km)…
-    const kmPorGradoLon = 111.195 * Math.cos((43 * Math.PI) / 180);
-    expect(puntoEnElipse(elipse, [-6 + 150 / kmPorGradoLon, 43])).toBe(true);
-    // …pero 150 km al norte queda fuera del semieje menor de 60 km.
-    expect(puntoEnElipse(elipse, [-6, 43 + 150 / 111.195])).toBe(false);
-    // Con la elipse orientada al norte (0°) es al revés.
-    const vertical = { ...elipse, orientacionGrados: 0 };
-    expect(puntoEnElipse(vertical, [-6, 43 + 150 / 111.195])).toBe(true);
-    expect(puntoEnElipse(vertical, [-6 + 150 / kmPorGradoLon, 43])).toBe(false);
-  });
-
-  test("coincide con el polígono generado por elipseAPoligono", () => {
-    const inclinada = { ...elipse, orientacionGrados: 100 };
+  test("coincide con el polígono generado por contornoUmbra", () => {
+    const irregular: InstanteUmbra = {
+      ...instante,
+      radiosKm: radiosLineales(50, 4),
+    };
     const multi: MultiPolygon = {
       type: "MultiPolygon",
-      coordinates: [elipseAPoligono(inclinada).coordinates],
+      coordinates: [contornoUmbra(irregular).coordinates],
     };
     // Rejilla de sondas alrededor del centro: ambas pruebas de
     // pertenencia deben coincidir salvo justo en el borde.
-    for (let dLat = -2; dLat <= 2; dLat += 0.5) {
+    for (let dLat = -3; dLat <= 3; dLat += 0.5) {
       for (let dLon = -3; dLon <= 3; dLon += 0.5) {
         const p: [number, number] = [-6 + dLon, 43 + dLat];
-        expect(puntoEnElipse(inclinada, p)).toBe(puntoEnMultiPolygon(p, multi));
+        expect(puntoEnUmbra(irregular, p)).toBe(puntoEnMultiPolygon(p, multi));
       }
     }
   });
 
-  test("llegadaUmbra devuelve el primer instante en que la elipse toca el punto", () => {
-    // Serie sintética: el centro avanza hacia el este 1° por instante.
+  test("llegadaUmbra devuelve el primer instante en que el contorno toca el punto", () => {
+    // Serie sintética: el centro avanza hacia el este 1° por instante,
+    // con un contorno circular de 100 km.
     const serie: InstanteUmbra[] = [0, 1, 2, 3].map((k) => ({
       t: `2026-08-12T18:2${k}:00.000Z`,
       centro: { lat: 43, lon: -8 + k },
-      semiejeMayorKm: 100,
-      semiejeMenorKm: 50,
-      orientacionGrados: 90,
+      radiosKm: Array<number>(N_RUMBOS_UMBRA).fill(100),
     }));
     // Un punto en lon −5.5 queda a ~41 km del centro del instante k=2
     // (lon −6) y a más de 100 km de los anteriores.
@@ -260,9 +278,30 @@ describe("puntoEnElipse y llegadaUmbra", () => {
   });
 
   test("con los datos reales, la umbra llega a Oviedo hacia las 20:27 CEST", () => {
-    const llegada = llegadaUmbra(umbra.instantes, [-5.8593, 43.3614]);
+    const llegada = llegadaUmbra(umbra.instantes, OVIEDO);
     expect(llegada).not.toBeNull();
     expect(formatoHoraCEST(llegada!)).toMatch(/^20:2[5-8]$/);
+  });
+});
+
+describe("contorno real de la umbra (datos de umbra.json)", () => {
+  test("el polígono interpolado contiene a Oviedo en su Máximo (18:27:51 UT)", () => {
+    // El Máximo de Oviedo (20:27:51 CEST) cae entre dos keyframes de la
+    // serie: el contorno interpolado debe cubrir la ciudad. La elipse
+    // ajustada fallaba por unos km en casos así cerca del borde.
+    const enMaximo = interpolarUmbra(
+      umbra.instantes,
+      new Date("2026-08-12T18:27:51Z"),
+    );
+    expect(enMaximo).not.toBeNull();
+    expect(puntoEnUmbra(enMaximo!, OVIEDO)).toBe(true);
+  });
+
+  test("Sevilla, fuera de la Franja, no cae dentro del contorno en ningún instante", () => {
+    for (const instante of umbra.instantes) {
+      expect(puntoEnUmbra(instante, SEVILLA)).toBe(false);
+    }
+    expect(llegadaUmbra(umbra.instantes, SEVILLA)).toBeNull();
   });
 });
 
