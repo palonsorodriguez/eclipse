@@ -24,9 +24,19 @@
  * el mismo Observador, así que `fijarContactos` deduplica por valor y la
  * curva del modo resumen se crea una sola vez por Observador.
  *
+ * Modo directo (issue #40, el día del eclipse): `pulsarAhora` pega el
+ * tiempo simulado al reloj real (×1, sin deriva: cada frame lee el
+ * proveedor `ahora`, no acumula dt). Cualquier interacción — slider, salto
+ * o pausa — sale del directo; `autoArrancarDirecto` lo enciende solo al
+ * montar si el reloj real ya está dentro de la ventana. Fuera de la
+ * ventana, `pulsarAhora` es una previsualización: salta a la hora actual
+ * proyectada sobre el día 12.
+ *
  * Este módulo es puro (sin React): el adaptador para componentes es
  * `lib/useLineaDeTiempo.ts`. La fábrica `crearRelojLineaDeTiempo` existe
- * para los tests; la app usa el singleton `relojLineaDeTiempo`.
+ * para los tests; la app usa el singleton `relojLineaDeTiempo`. El
+ * proveedor de tiempo real es inyectable (`OpcionesReloj.ahora`); el
+ * singleton usa `Date.now`.
  */
 
 import { crearCurvaResumen, type ContactosMs } from "@/lib/linea-tiempo-velocidad";
@@ -50,6 +60,25 @@ export interface OpcionesReloj {
   tMin: number;
   /** Extremo final de la Línea de tiempo (ms de época). */
   tMax: number;
+  /**
+   * Proveedor del reloj real (ms de época), la frontera de sistema del modo
+   * directo. Por defecto `Date.now`; los tests inyectan uno falso.
+   */
+  ahora?: () => number;
+}
+
+/** Milisegundos de un día, para proyectar la hora actual sobre el día 12. */
+const DIA_MS = 86_400_000;
+
+/**
+ * Proyección de un instante real sobre el día de la Línea de tiempo: misma
+ * hora del día (UT), pero en la fecha de `tMin`. Es la previsualización del
+ * botón AHORA fuera de la ventana del eclipse: "así estará el cielo a esta
+ * hora el día 12".
+ */
+export function proyectarAlDiaDelEclipse(ahoraMs: number, tMin: number): number {
+  const inicioDia = Math.floor(tMin / DIA_MS) * DIA_MS;
+  return inicioDia + (((ahoraMs % DIA_MS) + DIA_MS) % DIA_MS);
 }
 
 export interface RelojLineaDeTiempo {
@@ -85,6 +114,27 @@ export interface RelojLineaDeTiempo {
   fijarTiempo(t: number): void;
   /** Salta a un instante (recortado al rango) y repinta de inmediato. */
   saltarA(t: number): void;
+  // --- Modo directo (issue #40) -------------------------------------------
+  /** ¿Está el reloj en modo directo, pegado al reloj real? */
+  leerEnDirecto(): boolean;
+  /** Lectura del reloj real (el proveedor inyectado), para la cuenta atrás. */
+  leerAhora(): number;
+  /**
+   * Botón AHORA. Con el reloj real dentro de la ventana entra en modo
+   * directo: el tiempo simulado queda pegado al reloj real (×1) hasta que
+   * el usuario interactúe (slider, salto o pausa salen del modo) o la
+   * ventana termine. Fuera de la ventana es una previsualización: salta al
+   * instante actual proyectado sobre el día del eclipse, sin entrar en
+   * directo.
+   */
+  pulsarAhora(): void;
+  /**
+   * Arranque automático del día del eclipse: si el reloj real está dentro
+   * de la ventana, entra en modo directo. Solo actúa la primera vez (las
+   * vistas pueden montarse varias veces; salir del directo es decisión del
+   * usuario y no debe deshacerse en un remontaje).
+   */
+  autoArrancarDirecto(): void;
 }
 
 /** ¿Mismos Contactos por valor? (los objetos cambian de identidad). */
@@ -104,6 +154,7 @@ function contactosIguales(a: ContactosMs | null, b: ContactosMs | null): boolean
 export function crearRelojLineaDeTiempo({
   tMin,
   tMax,
+  ahora = Date.now,
 }: OpcionesReloj): RelojLineaDeTiempo {
   // --- Estado del reloj -----------------------------------------------------
   let t = tMin;
@@ -112,6 +163,11 @@ export function crearRelojLineaDeTiempo({
   let modo: ModoVelocidad = "resumen";
   let contactos: ContactosMs | null = null;
   let curva: ((t: number) => number) | null = null;
+  // Modo directo: t pegado al reloj real. `autoArranqueHecho` garantiza que
+  // la detección al montar solo actúe una vez por sesión (StrictMode monta
+  // doble y salir del directo es decisión del usuario).
+  let enDirecto = false;
+  let autoArranqueHecho = false;
 
   // --- Suscriptores ---------------------------------------------------------
   const pintores = new Set<(t: number) => void>();
@@ -132,16 +188,23 @@ export function crearRelojLineaDeTiempo({
     for (const pintor of pintores) pintor(t);
   };
 
-  const paso = (ahora: number): void => {
-    const dtMs = previo === null ? 0 : ahora - previo;
-    previo = ahora;
+  const paso = (marcaFrame: number): void => {
+    const dtMs = previo === null ? 0 : marcaFrame - previo;
+    previo = marcaFrame;
     let cambioUi = false;
     if (reproduciendo) {
-      const factor =
-        modo === "resumen" ? (curva?.(t) ?? VELOCIDAD_DEFECTO) : modo;
-      t = Math.min(t + dtMs * factor, tMax);
+      if (enDirecto) {
+        // Pegado al reloj real, no a los dt del rAF: sin deriva acumulada
+        // aunque la pestaña pierda frames.
+        t = Math.min(ahora(), tMax);
+      } else {
+        const factor =
+          modo === "resumen" ? (curva?.(t) ?? VELOCIDAD_DEFECTO) : modo;
+        t = Math.min(t + dtMs * factor, tMax);
+      }
       if (t >= tMax) {
         reproduciendo = false;
+        enDirecto = false; // la ventana terminó: el directo se apaga solo
         cambioUi = true;
       }
     }
@@ -171,9 +234,23 @@ export function crearRelojLineaDeTiempo({
   // Cerradas sobre el estado (nada de `this`): los componentes las pasan
   // sueltas como manejadores de eventos.
   const fijarTiempo = (nuevo: number): void => {
+    enDirecto = false; // tocar el slider o saltar sale del modo directo
     t = nuevo;
     tUi = nuevo;
     emitirFrame(); // feedback inmediato al arrastrar, sin esperar al rAF
+    notificarUi();
+  };
+
+  const saltarA = (nuevo: number): void => {
+    fijarTiempo(Math.min(Math.max(nuevo, tMin), tMax));
+  };
+
+  const entrarEnDirecto = (): void => {
+    enDirecto = true;
+    reproduciendo = true;
+    t = Math.min(ahora(), tMax);
+    tUi = Math.floor(t / 1000) * 1000;
+    emitirFrame(); // clavado al reloj real desde ya, sin esperar al rAF
     notificarUi();
   };
 
@@ -219,6 +296,7 @@ export function crearRelojLineaDeTiempo({
     },
 
     alternarReproduccion(): void {
+      enDirecto = false; // pausar (o reanudar a mano) sale del modo directo
       const siguiente = !reproduciendo;
       if (siguiente && t >= tMax) {
         t = tMin; // volver a empezar desde el principio
@@ -228,9 +306,27 @@ export function crearRelojLineaDeTiempo({
     },
 
     fijarTiempo,
+    saltarA,
 
-    saltarA(nuevo: number): void {
-      fijarTiempo(Math.min(Math.max(nuevo, tMin), tMax));
+    leerEnDirecto: () => enDirecto,
+    leerAhora: () => ahora(),
+
+    pulsarAhora(): void {
+      const real = ahora();
+      if (real >= tMin && real <= tMax) {
+        entrarEnDirecto();
+      } else {
+        // Previsualización: el instante actual proyectado sobre el día del
+        // eclipse (saltarA recorta a la ventana y ya sale del directo).
+        saltarA(proyectarAlDiaDelEclipse(real, tMin));
+      }
+    },
+
+    autoArrancarDirecto(): void {
+      if (autoArranqueHecho) return;
+      autoArranqueHecho = true;
+      const real = ahora();
+      if (real >= tMin && real <= tMax) entrarEnDirecto();
     },
   };
 }
