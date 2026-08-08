@@ -217,6 +217,29 @@ export default function Info() {
             <a href="https://open-meteo.com/">Open-Meteo</a> — previsión de
             nubosidad por horas para el municipio elegido.
           </li>
+          <li>
+            Textura de corona derivada de{" "}
+            <a href="https://commons.wikimedia.org/wiki/File:2024_Total_Solar_Eclipse_Corona.jpg">
+              <em>2024 Total Solar Eclipse Corona</em>
+            </a>{" "}
+            © Brucewaters,{" "}
+            <a href="https://creativecommons.org/licenses/by/4.0/deed.es">
+              CC BY 4.0
+            </a>{" "}
+            (recortada y procesada) · Referencias de color:{" "}
+            <a href="https://www.eso.org/public/images/eso1912j/">
+              ESO/P. Horálek
+            </a>{" "}
+            y ESO/R. Shida,{" "}
+            <a href="https://creativecommons.org/licenses/by/4.0/deed.es">
+              CC BY 4.0
+            </a>{" "}
+            · Anillo de diamante:{" "}
+            <a href="https://images.nasa.gov/details/NHQ201708210102">
+              NASA/Aubrey Gemignani
+            </a>{" "}
+            (dominio público).
+          </li>
         </ul>
         <p style={{ opacity: 0.75, fontSize: "0.95rem" }}>
           Proyecto divulgativo sin ánimo de lucro. Los cálculos y la previsión
