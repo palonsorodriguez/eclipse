@@ -8,9 +8,54 @@
  * bucle de requestAnimationFrame avanza; React solo re-renderiza cuando
  * cambia el segundo mostrado (`tUi`). En cada frame se llama a `onFrame`
  * con el tiempo actual, para que la vista pinte sin pasar por React.
+ *
+ * La velocidad de reproducción tiene dos modos:
+ * - "resumen" (por defecto): automática según la curva de
+ *   `lib/linea-tiempo-velocidad.ts` — vuela lejos de los Contactos y va a
+ *   cámara lenta en el anillo/perlas y la Totalidad. Necesita `contactos`;
+ *   sin ellos cae a ×60 fija.
+ * - Fija: ×30 / ×60 / ×120 / ×300.
+ *
+ * El modo elegido es una preferencia compartida entre todas las vistas
+ * (store a nivel de módulo + useSyncExternalStore): cambiarlo en la Vista
+ * Cielo lo cambia también en la Vista Mapa.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useMemo, useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { crearCurvaResumen, type ContactosMs } from "@/lib/linea-tiempo-velocidad";
+
+/** Velocidades fijas seleccionables, en orden de presentación. */
+export const VELOCIDADES_FIJAS = [30, 60, 120, 300] as const;
+export type VelocidadFija = (typeof VELOCIDADES_FIJAS)[number];
+
+/** Modo de velocidad: curva automática del resumen o un factor fijo. */
+export type ModoVelocidad = "resumen" | VelocidadFija;
+
+/** Velocidad si el modo es resumen pero la vista no aportó Contactos. */
+const VELOCIDAD_DEFECTO = 60;
+
+// ---------------------------------------------------------------------------
+// Preferencia de velocidad compartida entre vistas (store de módulo).
+// ---------------------------------------------------------------------------
+
+let modoCompartido: ModoVelocidad = "resumen";
+const oyentesModo = new Set<() => void>();
+
+function suscribirModo(oyente: () => void): () => void {
+  oyentesModo.add(oyente);
+  return () => oyentesModo.delete(oyente);
+}
+
+/** Cambia el modo de velocidad para todas las vistas montadas. */
+export function fijarModoVelocidad(modo: ModoVelocidad): void {
+  if (modo === modoCompartido) return;
+  modoCompartido = modo;
+  for (const oyente of oyentesModo) oyente();
+}
+
+const leerModo = (): ModoVelocidad => modoCompartido;
+// En SSR no hay preferencia del usuario: siempre el valor por defecto.
+const leerModoServidor = (): ModoVelocidad => "resumen";
 
 export interface OpcionesLineaDeTiempo {
   /** Extremo inicial de la Línea de tiempo (ms de época). */
@@ -18,11 +63,10 @@ export interface OpcionesLineaDeTiempo {
   /** Extremo final de la Línea de tiempo (ms de época). */
   tMax: number;
   /**
-   * Factor de velocidad de reproducción en el instante `t` (60 = un
-   * minuto simulado por segundo real). Si se omite, 60×. Debe ser una
-   * referencia estable (useCallback): el bucle se reinicia al cambiar.
+   * Contactos locales del Observador, para la curva del modo resumen y
+   * los saltos. Sin ellos, el modo resumen reproduce a ×60 fija.
    */
-  velocidad?: (t: number) => number;
+  contactos?: ContactosMs | null;
   /**
    * Llamada en cada frame de animación (y al fijar el tiempo a mano) con
    * el tiempo simulado actual. Debe ser una referencia estable
@@ -40,9 +84,13 @@ export interface LineaDeTiempo {
   alternarReproduccion: () => void;
   /** Fija el tiempo simulado (slider) y repinta de inmediato. */
   fijarTiempo: (t: number) => void;
+  /** Salta a un instante (recortado al rango) y repinta de inmediato. */
+  saltarA: (t: number) => void;
+  /** Modo de velocidad actual (compartido entre vistas). */
+  modo: ModoVelocidad;
+  /** Cambia el modo de velocidad (compartido entre vistas). */
+  fijarModo: (modo: ModoVelocidad) => void;
 }
-
-const VELOCIDAD_DEFECTO = 60;
 
 /**
  * Reloj compartido de la Línea de tiempo. Cada vista monta su propia
@@ -51,7 +99,7 @@ const VELOCIDAD_DEFECTO = 60;
 export function useLineaDeTiempo({
   tMin,
   tMax,
-  velocidad,
+  contactos,
   onFrame,
 }: OpcionesLineaDeTiempo): LineaDeTiempo {
   // La verdad del tiempo simulado vive en el ref (avanzado por rAF);
@@ -61,6 +109,17 @@ export function useLineaDeTiempo({
   const [tUi, setTUi] = useState<number>(tMin);
   const [reproduciendo, setReproduciendo] = useState(false);
   const reproduciendoRef = useRef(false);
+
+  const modo = useSyncExternalStore(suscribirModo, leerModo, leerModoServidor);
+
+  // Curva del resumen en un ref: el bucle rAF la lee sin reiniciarse al
+  // cambiar el Observador o el modo.
+  const curvaResumen = useMemo(
+    () => (contactos ? crearCurvaResumen(contactos) : null),
+    [contactos],
+  );
+  const curvaRef = useRef(curvaResumen);
+  curvaRef.current = curvaResumen;
 
   // Bucle rAF: avanza el reloj si se reproduce y notifica cada frame.
   useEffect(() => {
@@ -74,7 +133,12 @@ export function useLineaDeTiempo({
       const dtMs = ahora - previo;
       previo = ahora;
       if (reproduciendoRef.current) {
-        const factor = velocidad ? velocidad(tRef.current) : VELOCIDAD_DEFECTO;
+        // `modoCompartido` se lee del módulo (no del closure): el bucle ve
+        // el modo vigente sin reiniciarse al cambiarlo.
+        const factor =
+          modoCompartido === "resumen"
+            ? (curvaRef.current?.(tRef.current) ?? VELOCIDAD_DEFECTO)
+            : modoCompartido;
         tRef.current = Math.min(tRef.current + dtMs * factor, tMax);
         if (tRef.current >= tMax) {
           reproduciendoRef.current = false;
@@ -91,7 +155,7 @@ export function useLineaDeTiempo({
     };
     raf = requestAnimationFrame(paso);
     return () => cancelAnimationFrame(raf);
-  }, [velocidad, onFrame, tMax]);
+  }, [onFrame, tMax]);
 
   const alternarReproduccion = (): void => {
     const siguiente = !reproduciendoRef.current;
@@ -109,5 +173,17 @@ export function useLineaDeTiempo({
     onFrame?.(t); // feedback inmediato al arrastrar, sin esperar al rAF
   };
 
-  return { tUi, reproduciendo, alternarReproduccion, fijarTiempo };
+  const saltarA = (t: number): void => {
+    fijarTiempo(Math.min(Math.max(t, tMin), tMax));
+  };
+
+  return {
+    tUi,
+    reproduciendo,
+    alternarReproduccion,
+    fijarTiempo,
+    saltarA,
+    modo,
+    fijarModo: fijarModoVelocidad,
+  };
 }

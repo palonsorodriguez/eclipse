@@ -28,8 +28,10 @@ import "maplibre-gl/dist/maplibre-gl.css";
 // public/vendor/, copiado por scripts/copy-maplibre-worker.mjs
 // (hooks predev/prebuild).
 maplibregl.setWorkerUrl("/vendor/maplibre-gl/maplibre-gl-worker.mjs");
-import { useCallback, useEffect, useRef, useState } from "react";
-import type { Observador } from "@/lib/eclipse-engine";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { circunstanciasLocales, type Observador } from "@/lib/eclipse-engine";
+import type { ContactosMs } from "@/lib/linea-tiempo-velocidad";
+import ControlesTiempo, { type MarcaTiempo } from "./ControlesTiempo";
 import {
   cargarBandaTotalidad,
   cargarIsolineas,
@@ -75,6 +77,18 @@ const HITOS = [
   { etiqueta: "Totalidad", t: Date.UTC(2026, 7, 12, 18, 29, 0) },
   { etiqueta: "Fin parcial", t: Date.UTC(2026, 7, 12, 19, 22, 0) },
 ] as const;
+
+/** Marcas de los hitos para los controles compartidos, con su hora. */
+const MARCAS_HITOS: readonly MarcaTiempo[] = HITOS.map((hito) => ({
+  etiqueta: `${hito.etiqueta} ${formatoHoraCEST(hito.t)}`,
+  t: hito.t,
+}));
+
+/**
+ * Observador por defecto para la curva del resumen y los saltos mientras
+ * no hay municipio elegido: Ferrol, el mismo que usa la Vista Cielo.
+ */
+const OBSERVADOR_DEFECTO: Observador = { lat: 43.4832, lon: -8.2369 };
 
 /** Ciudades de referencia, [lon, lat]. */
 const CIUDADES: ReadonlyArray<{ nombre: string; coord: [number, number] }> = [
@@ -463,8 +477,29 @@ export default function VistaMapa({ observador, onSelect }: VistaMapaProps) {
     });
   }, []);
 
-  const { tUi, reproduciendo, alternarReproduccion, fijarTiempo } =
-    useLineaDeTiempo({ tMin: T_MIN, tMax: T_MAX, onFrame: pintarUmbra });
+  // Contactos del Observador (o de Ferrol por defecto) para la curva del
+  // modo resumen y los botones de salto. Clave por lat/lon: el objeto
+  // `observador` puede cambiar de identidad sin cambiar de valor.
+  const lat = observador?.lat ?? OBSERVADOR_DEFECTO.lat;
+  const lon = observador?.lon ?? OBSERVADOR_DEFECTO.lon;
+  const contactos = useMemo((): ContactosMs => {
+    const circ = circunstanciasLocales({ lat, lon });
+    return {
+      c1: circ.c1.instante.getTime(),
+      c2: circ.c2 ? circ.c2.instante.getTime() : null,
+      maximo: circ.maximo.instante.getTime(),
+      c3: circ.c3 ? circ.c3.instante.getTime() : null,
+      c4: circ.c4.instante.getTime(),
+    };
+  }, [lat, lon]);
+
+  const linea = useLineaDeTiempo({
+    tMin: T_MIN,
+    tMax: T_MAX,
+    contactos,
+    onFrame: pintarUmbra,
+  });
+  const { tUi } = linea;
 
   // --- Marcador del Observador ----------------------------------------------
   const marcadorObservadorRef = useRef<maplibregl.Marker | null>(null);
@@ -578,80 +613,14 @@ export default function VistaMapa({ observador, onSelect }: VistaMapaProps) {
         </p>
       )}
 
-      {/* Línea de tiempo con hitos y play */}
-      <div style={{ position: "relative", marginTop: 34 }}>
-        {HITOS.map((hito) => {
-          const pct = ((hito.t - T_MIN) / (T_MAX - T_MIN)) * 100;
-          return (
-            <div
-              key={hito.etiqueta}
-              style={{
-                position: "absolute",
-                left: `${pct}%`,
-                top: -26,
-                transform: "translateX(-50%)",
-                fontSize: "0.72rem",
-                opacity: 0.85,
-                textAlign: "center",
-                pointerEvents: "none",
-                whiteSpace: "nowrap",
-              }}
-              title={`${hito.etiqueta} — ${formatoHoraCEST(hito.t)} CEST`}
-            >
-              {hito.etiqueta} {formatoHoraCEST(hito.t)}
-              <div
-                style={{
-                  width: 1,
-                  height: 8,
-                  background: "currentColor",
-                  margin: "1px auto 0",
-                }}
-              />
-            </div>
-          );
-        })}
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <button
-            type="button"
-            onClick={alternarReproduccion}
-            aria-label={reproduciendo ? "Pausar" : "Reproducir"}
-            style={{
-              fontSize: "1.1rem",
-              width: 44,
-              height: 44,
-              borderRadius: "50%",
-              border: "1px solid rgba(255,255,255,0.35)",
-              background: "transparent",
-              color: "inherit",
-              cursor: "pointer",
-            }}
-          >
-            {reproduciendo ? "⏸" : "▶"}
-          </button>
-          <input
-            type="range"
-            min={T_MIN}
-            max={T_MAX}
-            step={1000}
-            value={tUi}
-            onChange={(e) => fijarTiempo(Number(e.target.value))}
-            aria-label="Línea de tiempo del eclipse"
-            style={{ flex: 1, accentColor: "#ffd98a" }}
-          />
-        </div>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            fontSize: "0.75rem",
-            opacity: 0.5,
-            marginLeft: 56,
-          }}
-        >
-          <span>{formatoHoraCEST(T_MIN)}</span>
-          <span>{formatoHoraCEST(T_MAX)}</span>
-        </div>
-      </div>
+      {/* Línea de tiempo con hitos y controles compartidos */}
+      <ControlesTiempo
+        tMin={T_MIN}
+        tMax={T_MAX}
+        linea={linea}
+        contactos={contactos}
+        marcas={MARCAS_HITOS}
+      />
 
       <p style={{ margin: "10px 0 0", opacity: 0.7, fontSize: "0.85rem" }}>
         Haz clic en el mapa para situar al Observador en el municipio más
