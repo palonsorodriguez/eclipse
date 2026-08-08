@@ -106,7 +106,9 @@ describe("carga desde /geodata/ vía fetch", () => {
       // La umbra del 2026 mide ~60 km de semieje menor sobre España; solo
       // en el último instante, rozando el terminador, baja de 20 km.
       expect(i.semiejeMenorKm).toBeGreaterThan(5);
-      expect(i.semiejeMayorKm).toBeLessThanOrEqual(600);
+      // Sin tope artificial: al atardecer la sombra rasante se estira de
+      // verdad, pero nunca más allá de una cota geométrica holgada.
+      expect(i.semiejeMayorKm).toBeLessThan(5000);
       expect(i.orientacionGrados).toBeGreaterThanOrEqual(0);
       expect(i.orientacionGrados).toBeLessThan(180);
     }
@@ -164,18 +166,52 @@ describe("isolineas.geojson", () => {
 });
 
 describe("umbra.json", () => {
-  test("la umbra avanza de oeste a este durante la ventana", () => {
-    // En el último instante la umbra roza el terminador (puesta de sol) y
-    // su centro deja de estar bien definido como avance hacia el este,
-    // así que se excluye de la comprobación de monotonía.
-    const lons = umbra.instantes.slice(0, -1).map((i) => i.centro.lon);
-    for (let i = 1; i < lons.length; i++) {
+  test("la serie empieza a las 17:55 UT (entrada por el Atlántico)", () => {
+    expect(umbra.instantes[0].t).toBe("2026-08-12T17:55:00.000Z");
+    // A esa hora la sombra aún está en mitad del Atlántico norte.
+    expect(umbra.instantes[0].centro.lon).toBeLessThan(-20);
+  });
+
+  test("la umbra avanza de oeste a este hasta rozar el terminador", () => {
+    // En los últimos instantes la umbra roza el terminador (puesta de
+    // sol): el centro deja de estar bien definido como avance hacia el
+    // este y retrocede unos km. La monotonía se exige hasta la longitud
+    // máxima, que debe caer en el último minuto de la serie.
+    const lons = umbra.instantes.map((i) => i.centro.lon);
+    const iMax = lons.indexOf(Math.max(...lons));
+    expect(iMax).toBeGreaterThanOrEqual(lons.length - 4);
+    for (let i = 1; i <= iMax; i++) {
       expect(lons[i]).toBeGreaterThan(lons[i - 1]);
     }
   });
 
+  test("la orientación de la elipse es suave: sin saltos ≥ 5° entre instantes", () => {
+    // El bug del "volantazo": el generador antiguo cuantizaba la
+    // orientación al rumbo ganador de un haz de 32 (saltos de 11,25°).
+    // Con el ajuste por momentos de segundo orden (PCA) la orientación
+    // gira de forma continua. La diferencia se mide módulo 180 (la
+    // elipse tiene simetría 180°).
+    for (let i = 1; i < umbra.instantes.length; i++) {
+      const a = umbra.instantes[i - 1].orientacionGrados;
+      const b = umbra.instantes[i].orientacionGrados;
+      const dif = Math.abs(((((b - a + 90) % 180) + 180) % 180) - 90);
+      expect(dif).toBeLessThan(5);
+    }
+  });
+
+  test("el semieje mayor no está capado: al atardecer supera los 600 km", () => {
+    const maximo = Math.max(...umbra.instantes.map((i) => i.semiejeMayorKm));
+    expect(maximo).toBeGreaterThan(600);
+  });
+
   test("a media travesía el centro de la umbra cae dentro de la Franja", () => {
-    const medio = umbra.instantes[Math.floor(umbra.instantes.length / 2)];
+    // Punto medio de la travesía peninsular (lon −8° a 3°), no de la
+    // serie completa, que ahora arranca en mitad del Atlántico.
+    const peninsular = umbra.instantes.filter(
+      (i) => i.centro.lon > -8 && i.centro.lon < 3,
+    );
+    expect(peninsular.length).toBeGreaterThan(0);
+    const medio = peninsular[Math.floor(peninsular.length / 2)];
     const { lat, lon } = medio.centro;
     expect(lat).toBeGreaterThan(latitudEn("sur", lon));
     expect(lat).toBeLessThan(latitudEn("norte", lon));

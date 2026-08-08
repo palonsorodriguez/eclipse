@@ -38,19 +38,24 @@
  *
  * 3. `umbra.json` — posición del centro de la umbra y su contorno
  *    aproximado (elipse: centro, semiejes en km y orientación) cada 30 s
- *    entre las 18:20 y las 18:40 UT.
+ *    entre las 17:55 y las 18:40 UT (la entrada atlántica queda dentro de
+ *    la serie: la sombra se ve venir desde el noroeste).
  *
  *    Método: para cada instante `t` se minimiza la separación angular
  *    topocéntrica Sol–Luna sobre la superficie (refinamiento sucesivo de
  *    rejilla): el mínimo es el punto donde el eje de la sombra corta el
  *    suelo, es decir, el centro de la umbra. Desde el centro se lanza un
- *    haz de rumbos y se busca por bisección la distancia a la que el
- *    Oscurecimiento instantáneo deja de ser 1: el radio máximo y mínimo
- *    del contorno dan los semiejes de la elipse aproximada y el rumbo del
- *    radio máximo su orientación (la umbra real es un óvalo casi elíptico,
- *    muy alargado aquí porque el Sol está bajo). Los instantes en los que
- *    la umbra no toca la superficie con el Sol sobre el horizonte (antes
- *    de entrar por el Atlántico o tras la puesta de sol en el
+ *    haz de 32 rumbos y se busca por bisección la distancia a la que el
+ *    Oscurecimiento instantáneo deja de ser 1 (ampliando el alcance de
+ *    búsqueda si hace falta: cerca de la puesta de sol la sombra es
+ *    rasante y se estira cientos o miles de km — no hay tope artificial).
+ *    La orientación de la elipse es el eje principal (momentos de segundo
+ *    orden / PCA) de los 32 puntos del borde proyectados a un plano local
+ *    en km — continua, no cuantizada al rumbo ganador del haz — y los
+ *    semiejes se miden por bisección a lo largo de los ejes principales
+ *    (media de los dos radios opuestos de cada eje). Los instantes en los
+ *    que la umbra no toca la superficie con el Sol sobre el horizonte
+ *    (antes de entrar por el Atlántico o tras la puesta de sol en el
  *    Mediterráneo) se omiten y quedan anotados en `instantesSinUmbra`.
  */
 
@@ -97,7 +102,7 @@ const REJILLA_LAT_MIN = 35;
 const REJILLA_LAT_MAX = 45;
 
 /** Ventana temporal de la umbra (UT) y paso en segundos. */
-const UMBRA_INICIO = new Date("2026-08-12T18:20:00Z");
+const UMBRA_INICIO = new Date("2026-08-12T17:55:00Z");
 const UMBRA_FIN = new Date("2026-08-12T18:40:00Z");
 const UMBRA_PASO_S = 30;
 
@@ -397,7 +402,11 @@ function separacion(lat: number, lon: number, t: Date): number {
 /**
  * Minimiza la separación angular Sol–Luna sobre (lat, lon) por
  * refinamiento sucesivo de rejilla 5×5 centrada en la mejor estimación,
- * dividiendo el paso a la mitad hasta bajar de 0,002° (~200 m).
+ * dividiendo el paso a la mitad hasta bajar de 0,002° (~200 m). A cada
+ * paso la rejilla se re-explora mientras siga mejorando ("camina" hacia
+ * el mínimo), así la búsqueda converge aunque la estimación inicial esté
+ * a muchos grados del centro real (p. ej. el primer instante de la serie,
+ * con la umbra aún en mitad del Atlántico norte).
  */
 function minimizarSeparacion(
   t: Date,
@@ -408,13 +417,20 @@ function minimizarSeparacion(
   let mejor = { lat: lat0, lon: lon0, separacion: separacion(lat0, lon0, t) };
   let paso = paso0;
   while (paso > 0.002) {
-    for (let dj = -2; dj <= 2; dj++) {
-      for (let di = -2; di <= 2; di++) {
-        if (di === 0 && dj === 0) continue;
-        const lat = mejor.lat + dj * paso;
-        const lon = mejor.lon + di * paso;
-        const s = separacion(lat, lon, t);
-        if (s < mejor.separacion) mejor = { lat, lon, separacion: s };
+    let mejora = true;
+    while (mejora) {
+      mejora = false;
+      for (let dj = -2; dj <= 2; dj++) {
+        for (let di = -2; di <= 2; di++) {
+          if (di === 0 && dj === 0) continue;
+          const lat = mejor.lat + dj * paso;
+          const lon = mejor.lon + di * paso;
+          const s = separacion(lat, lon, t);
+          if (s < mejor.separacion) {
+            mejor = { lat, lon, separacion: s };
+            mejora = true;
+          }
+        }
       }
     }
     paso /= 2;
@@ -423,25 +439,42 @@ function minimizarSeparacion(
 }
 
 /**
+ * Alcance inicial de la búsqueda del borde de la umbra (km). Si el borde
+ * queda más lejos, el alcance se duplica hasta encerrarlo: no hay tope
+ * artificial (el antiguo tope de 600 km recortaba el semieje mayor cerca
+ * de la puesta de sol, cuando la sombra rasante se estira de verdad).
+ */
+const ALCANCE_INICIAL_KM = 600;
+
+/**
+ * Salvaguarda geométrica del alcance: media circunferencia terrestre. La
+ * intersección del cono de umbra con la esfera no puede superarla.
+ */
+const ALCANCE_MAXIMO_KM = Math.PI * RADIO_TIERRA_KM;
+
+/**
  * Radio del contorno de la umbra (km) desde su centro siguiendo un rumbo:
  * bisección de la distancia a la que el Oscurecimiento instantáneo deja de
- * ser 1. Devuelve 0 si ni siquiera el centro está en Totalidad y `maxKm`
- * si el contorno queda más lejos que el alcance de búsqueda.
+ * ser 1. Devuelve 0 si ni siquiera el centro está en Totalidad. El alcance
+ * de búsqueda parte de {@link ALCANCE_INICIAL_KM} y se amplía duplicándolo
+ * mientras el punto siga en Totalidad, hasta {@link ALCANCE_MAXIMO_KM}.
  */
 function radioUmbra(
   centro: { lat: number; lon: number },
   rumbo: number,
   t: Date,
-  maxKm: number,
 ): number {
   const enUmbra = (d: number): boolean => {
     const p = destino(centro.lat, centro.lon, rumbo, d);
     return oscurecimientoInstantaneo({ lat: p.lat, lon: p.lon }, t) >= 1;
   };
   if (!enUmbra(0)) return 0;
-  if (enUmbra(maxKm)) return maxKm;
-  let dentro = 0;
-  let fuera = maxKm;
+  let fuera = ALCANCE_INICIAL_KM;
+  while (enUmbra(fuera)) {
+    if (fuera >= ALCANCE_MAXIMO_KM) return ALCANCE_MAXIMO_KM;
+    fuera = Math.min(fuera * 2, ALCANCE_MAXIMO_KM);
+  }
+  let dentro = fuera > ALCANCE_INICIAL_KM ? fuera / 2 : 0;
   while (fuera - dentro > 0.5) {
     const m = (dentro + fuera) / 2;
     if (enUmbra(m)) {
@@ -480,18 +513,52 @@ function generarUmbra(columnas: ColumnaBanda[]): UmbraJSON {
       continue;
     }
 
-    // Contorno: haz de 32 rumbos, radio por bisección en cada uno.
-    let semiejeMayorKm = 0;
-    let semiejeMenorKm = Infinity;
-    let orientacionGrados = 0;
-    for (let r = 0; r < 32; r++) {
-      const rumbo = (r * 360) / 32;
-      const radio = radioUmbra(centro, rumbo, t, 600);
-      if (radio > semiejeMayorKm) {
-        semiejeMayorKm = radio;
-        orientacionGrados = rumbo % 180;
-      }
-      if (radio < semiejeMenorKm) semiejeMenorKm = radio;
+    // Contorno: haz de 32 rumbos, radio por bisección en cada uno. Los
+    // puntos del borde se proyectan a un plano local en km (este/norte).
+    const N_RUMBOS = 32;
+    const borde: Array<{ x: number; y: number }> = [];
+    for (let r = 0; r < N_RUMBOS; r++) {
+      const rumbo = (r * 360) / N_RUMBOS;
+      const radio = radioUmbra(centro, rumbo, t);
+      borde.push({
+        x: radio * Math.sin(rumbo * DEG2RAD), // este
+        y: radio * Math.cos(rumbo * DEG2RAD), // norte
+      });
+    }
+
+    // Orientación continua: eje principal de los puntos del borde por
+    // momentos de segundo orden (PCA) respecto a su centroide — nada de
+    // quedarse con el rumbo del haz más largo, que cuantizaba la
+    // orientación a saltos de 360/32 = 11,25° (el "volantazo").
+    const cx = borde.reduce((s, p) => s + p.x, 0) / N_RUMBOS;
+    const cy = borde.reduce((s, p) => s + p.y, 0) / N_RUMBOS;
+    let sxx = 0;
+    let syy = 0;
+    let sxy = 0;
+    for (const p of borde) {
+      const dx = p.x - cx;
+      const dy = p.y - cy;
+      sxx += dx * dx;
+      syy += dy * dy;
+      sxy += dx * dy;
+    }
+    // Ángulo del eje principal desde el este (antihorario) → rumbo desde
+    // el norte (horario), normalizado a [0, 180) por la simetría 180° de
+    // la elipse.
+    const anguloEste = 0.5 * Math.atan2(2 * sxy, sxx - syy);
+    let orientacionGrados = (((90 - anguloEste * RAD2DEG) % 180) + 180) % 180;
+
+    // Semiejes medidos por bisección a lo largo de los ejes principales
+    // (media de los dos radios opuestos de cada eje): continuos entre
+    // instantes, al contrario que el radio máximo/mínimo del haz, que
+    // salta cuando el eje real cae entre dos rumbos.
+    const radioEje = (rumbo: number): number =>
+      (radioUmbra(centro, rumbo, t) + radioUmbra(centro, rumbo + 180, t)) / 2;
+    let semiejeMayorKm = radioEje(orientacionGrados);
+    let semiejeMenorKm = radioEje(orientacionGrados + 90);
+    if (semiejeMenorKm > semiejeMayorKm) {
+      [semiejeMayorKm, semiejeMenorKm] = [semiejeMenorKm, semiejeMayorKm];
+      orientacionGrados = (orientacionGrados + 90) % 180;
     }
 
     instantes.push({
@@ -514,7 +581,7 @@ function generarUmbra(columnas: ColumnaBanda[]): UmbraJSON {
 
   return {
     metodo:
-      "Centro: mínimo de la separación angular topocéntrica Sol–Luna sobre la superficie (donde el eje de la sombra corta el suelo). Contorno: haz de 32 rumbos desde el centro y bisección de la distancia a la que el Oscurecimiento instantáneo deja de ser 1; semieje mayor/menor = radio máximo/mínimo, orientación = rumbo del radio máximo (grados desde el norte, mod 180, cuantizada a pasos de 11,25°). Los radios se buscan hasta 600 km: cerca de la puesta de sol la sombra es rasante y el semieje mayor queda recortado a ese tope. En el último instante la umbra roza el terminador y el centro deja de avanzar hacia el este. Calculado con lib/eclipse-engine (astronomy-engine).",
+      "Centro: mínimo de la separación angular topocéntrica Sol–Luna sobre la superficie (donde el eje de la sombra corta el suelo). Contorno: haz de 32 rumbos desde el centro y bisección de la distancia a la que el Oscurecimiento instantáneo deja de ser 1, ampliando el alcance de búsqueda sin tope artificial (cerca de la puesta de sol la sombra rasante se estira cientos o miles de km). Orientación: eje principal (momentos de segundo orden / PCA) de los 32 puntos del borde proyectados a un plano local en km — continua, en grados desde el norte, mod 180. Semiejes: bisección a lo largo de los ejes principales, media de los dos radios opuestos de cada eje (la elipse es una aproximación simétrica de un óvalo que en realidad se alarga más hacia el terminador). En el último instante la umbra roza el terminador y el centro deja de avanzar hacia el este. Calculado con lib/eclipse-engine (astronomy-engine).",
     instantes,
     instantesSinUmbra,
   };
