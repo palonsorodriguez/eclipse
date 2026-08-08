@@ -34,6 +34,7 @@ import {
   cargarBandaTotalidad,
   cargarIsolineas,
   cargarUmbra,
+  distanciaKm,
   type BandaTotalidadGeoJSON,
   type InstanteUmbra,
   type IsolineasGeoJSON,
@@ -46,6 +47,7 @@ import {
   formatoHoraCEST,
   interpolarUmbra,
   lineaBanda,
+  llegadaUmbra,
   poligonoBanda,
   puntoEtiquetaIsolinea,
   trayectoriaUmbra,
@@ -57,9 +59,13 @@ import { useLineaDeTiempo } from "@/lib/useLineaDeTiempo";
 const ESTILO_MAPA =
   "https://basemaps.cartocdn.com/gl/positron-gl-style/style.json";
 
-/** Encuadre inicial y límites de paneo: España con margen. */
-const CENTRO_INICIAL: [number, number] = [-3.7, 40.2];
-const ZOOM_INICIAL = 5.5;
+/**
+ * Encuadre inicial y límites de paneo: España con margen atlántico hacia
+ * el oeste (lon mín −21°), para ver venir la entrada de la sombra por el
+ * Atlántico antes de que toque Galicia.
+ */
+const CENTRO_INICIAL: [number, number] = [-5.3, 40.3];
+const ZOOM_INICIAL = 5;
 const LIMITES_MAPA: [[number, number], [number, number]] = [
   [-21, 26],
   [13, 51],
@@ -381,6 +387,28 @@ export default function VistaMapa({ observador, onSelect }: VistaMapaProps) {
           .addTo(mapa),
       );
     }
+    // Marcas horarias CEST cada 2 min sobre la trayectoria de la umbra
+    // (20:26 · 20:28 · 20:30…): dónde estará el centro de la sombra y a
+    // qué hora.
+    for (const instante of umbra.instantes) {
+      const fecha = new Date(instante.t);
+      if (fecha.getUTCSeconds() !== 0 || fecha.getUTCMinutes() % 2 !== 0) {
+        continue;
+      }
+      marcadores.push(
+        new maplibregl.Marker({
+          element: crearEtiqueta(
+            formatoHoraCEST(fecha.getTime()),
+            true,
+            "#55504a",
+          ),
+          anchor: "left",
+          offset: [-3, 0],
+        })
+          .setLngLat([instante.centro.lon, instante.centro.lat])
+          .addTo(mapa),
+      );
+    }
 
     capasListasRef.current = true;
     setCapasListas(true);
@@ -430,38 +458,142 @@ export default function VistaMapa({ observador, onSelect }: VistaMapaProps) {
     });
   }, [capasListas, rejilla, nivelPct]);
 
-  // --- Umbra animada: se actualiza en cada frame de la Línea de tiempo ------
+  // --- Indicador de borde: la sombra se ve venir aunque esté fuera ----------
+  // Punto de referencia de la distancia y la hora de llegada: el Observador
+  // si está definido; si no, el centro del encuadre actual. "Llega" es el
+  // primer instante tabulado (paso 30 s) en que la elipse de la umbra toca
+  // ese punto (`llegadaUmbra` en lib/mapa.ts).
+  const observadorRef = useRef(observador);
+  observadorRef.current = observador;
+  const indicadorRef = useRef<HTMLDivElement | null>(null);
   const ultimoTUmbraRef = useRef<number | null>(null);
-  const pintarUmbra = useCallback((t: number) => {
-    const mapa = mapaRef.current;
-    if (!mapa || !capasListasRef.current) return;
-    if (ultimoTUmbraRef.current === t) return;
-    ultimoTUmbraRef.current = t;
 
-    const umbra = interpolarUmbra(instantesUmbraRef.current, new Date(t));
-    const fuente = mapa.getSource<maplibregl.GeoJSONSource>("umbra");
-    if (!fuente) return;
-    if (!umbra) {
-      fuente.setData(FC_VACIA);
+  const actualizarIndicador = useCallback(() => {
+    const mapa = mapaRef.current;
+    const el = indicadorRef.current;
+    if (!mapa || !el) return;
+    const instantes = instantesUmbraRef.current;
+    const t = ultimoTUmbraRef.current;
+    if (!capasListasRef.current || instantes.length === 0 || t === null) {
+      el.style.display = "none";
       return;
     }
-    fuente.setData({
-      type: "FeatureCollection",
-      features: [
-        // Halo exterior: borde difuso barato (elipse ampliada, tenue).
-        {
-          type: "Feature",
-          properties: { opacidad: 0.14 },
-          geometry: elipseAPoligono(umbra, 64, 1.18),
-        },
-        {
-          type: "Feature",
-          properties: { opacidad: 0.45 },
-          geometry: elipseAPoligono(umbra),
-        },
-      ],
-    });
+    const tFin = new Date(instantes[instantes.length - 1].t).getTime();
+    if (t > tFin) {
+      // La sombra ya salió de la superficie: no hay nada que anticipar.
+      el.style.display = "none";
+      return;
+    }
+    // Antes del primer instante tabulado la sombra aún viene de camino:
+    // se anticipa con su primera posición conocida.
+    const t0 = new Date(instantes[0].t).getTime();
+    const umbra = interpolarUmbra(instantes, new Date(Math.max(t, t0)));
+    if (!umbra) {
+      el.style.display = "none";
+      return;
+    }
+    const centroSombra: [number, number] = [umbra.centro.lon, umbra.centro.lat];
+    if (mapa.getBounds().contains(centroSombra)) {
+      el.style.display = "none";
+      return;
+    }
+
+    const encuadre = mapa.getCenter();
+    const obs = observadorRef.current;
+    const referencia: [number, number] = obs
+      ? [obs.lon, obs.lat]
+      : [encuadre.lng, encuadre.lat];
+    const km = Math.max(10, Math.round(distanciaKm(referencia, centroSombra) / 10) * 10);
+    const llegada = llegadaUmbra(instantes, referencia);
+    const sufijoLlegada =
+      llegada !== null && llegada >= t
+        ? ` — llega ${formatoHoraCEST(llegada)}`
+        : "";
+
+    // Lado del encuadre por el que asoma la sombra (rumbo aproximado del
+    // centro de la sombra visto desde el centro del encuadre).
+    const dx =
+      (centroSombra[0] - encuadre.lng) *
+      Math.cos((encuadre.lat * Math.PI) / 180);
+    const dy = centroSombra[1] - encuadre.lat;
+    const texto = `sombra a ${km} km${sufijoLlegada}`;
+    el.style.left = "";
+    el.style.right = "";
+    el.style.top = "";
+    el.style.bottom = "";
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      el.style.top = "50%";
+      el.style.transform = "translateY(-50%)";
+      if (dx < 0) {
+        el.style.left = "10px";
+        el.textContent = `⏴ ${texto}`;
+      } else {
+        el.style.right = "10px";
+        el.textContent = `${texto} ⏵`;
+      }
+    } else {
+      el.style.left = "50%";
+      el.style.transform = "translateX(-50%)";
+      if (dy > 0) {
+        el.style.top = "10px";
+        el.textContent = `⏶ ${texto}`;
+      } else {
+        el.style.bottom = "10px";
+        el.textContent = `⏷ ${texto}`;
+      }
+    }
+    el.style.display = "block";
   }, []);
+
+  // Reevaluar el indicador al panear/zoomear y cuando cambian las capas o
+  // el Observador (la Línea de tiempo ya lo reevalúa en cada frame).
+  useEffect(() => {
+    const mapa = mapaRef.current;
+    if (!mapa || !mapaListo) return;
+    mapa.on("move", actualizarIndicador);
+    return () => {
+      mapa.off("move", actualizarIndicador);
+    };
+  }, [mapaListo, actualizarIndicador]);
+  useEffect(() => {
+    actualizarIndicador();
+  }, [capasListas, observador, actualizarIndicador]);
+
+  // --- Umbra animada: se actualiza en cada frame de la Línea de tiempo ------
+  const pintarUmbra = useCallback(
+    (t: number) => {
+      const mapa = mapaRef.current;
+      if (!mapa || !capasListasRef.current) return;
+      if (ultimoTUmbraRef.current === t) return;
+      ultimoTUmbraRef.current = t;
+
+      const umbra = interpolarUmbra(instantesUmbraRef.current, new Date(t));
+      actualizarIndicador();
+      const fuente = mapa.getSource<maplibregl.GeoJSONSource>("umbra");
+      if (!fuente) return;
+      if (!umbra) {
+        fuente.setData(FC_VACIA);
+        return;
+      }
+      fuente.setData({
+        type: "FeatureCollection",
+        features: [
+          // Halo exterior: borde difuso barato (elipse ampliada, tenue).
+          {
+            type: "Feature",
+            properties: { opacidad: 0.14 },
+            geometry: elipseAPoligono(umbra, 64, 1.18),
+          },
+          {
+            type: "Feature",
+            properties: { opacidad: 0.45 },
+            geometry: elipseAPoligono(umbra),
+          },
+        ],
+      });
+    },
+    [actualizarIndicador],
+  );
 
   const { tUi, reproduciendo, alternarReproduccion, fijarTiempo } =
     useLineaDeTiempo({ tMin: T_MIN, tMax: T_MAX, onFrame: pintarUmbra });
@@ -504,6 +636,23 @@ export default function VistaMapa({ observador, onSelect }: VistaMapaProps) {
             borderRadius: 8,
             overflow: "hidden",
             background: "#dfe8ec",
+          }}
+        />
+        <div
+          ref={indicadorRef}
+          aria-live="polite"
+          style={{
+            position: "absolute",
+            display: "none",
+            padding: "0.3rem 0.7rem",
+            borderRadius: 999,
+            background: "rgba(20, 24, 48, 0.85)",
+            color: "#ffd97a",
+            fontSize: "0.8rem",
+            fontVariantNumeric: "tabular-nums",
+            whiteSpace: "nowrap",
+            pointerEvents: "none",
+            zIndex: 2,
           }}
         />
         {errorDatos && (
@@ -655,8 +804,9 @@ export default function VistaMapa({ observador, onSelect }: VistaMapaProps) {
 
       <p style={{ margin: "10px 0 0", opacity: 0.7, fontSize: "0.85rem" }}>
         Haz clic en el mapa para situar al Observador en el municipio más
-        cercano. La sombra (umbra) cruza la península entre las 20:20 y las
-        20:34 aproximadamente.
+        cercano. La sombra (umbra) entra por el Atlántico y cruza la
+        península entre las 20:20 y las 20:34 aproximadamente; las marcas
+        sobre su trayectoria indican la hora (CEST) de paso del centro.
       </p>
       <p style={{ margin: "4px 0 0", opacity: 0.5, fontSize: "0.75rem" }}>
         Mapa: © OpenStreetMap contributors © CARTO.
