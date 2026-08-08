@@ -57,6 +57,7 @@ import {
   tinteExtincion,
 } from "./cielo-luz";
 import type { CuerpoDomo } from "./cielo-estrellas";
+import { TAM_TEXTURA_PERFIL } from "./cielo-horizonte";
 
 /**
  * Fracción del medio lado de la textura de corona a la que está el limbo
@@ -97,6 +98,12 @@ export interface RendererCielo {
   redimensionar(ancho: number, alto: number): void;
   /** Pinta un fotograma completo. */
   dibujar(f: FotogramaCieloGL): void;
+  /**
+   * Sube (o retira, con `null`) el perfil real del horizonte (#48): la
+   * textura 1D de `texturaPerfil` (cielo-horizonte.ts). Sin perfil, el
+   * shader dibuja el terreno procedural de siempre.
+   */
+  actualizarPerfil(datos: Uint8Array | null): void;
   /** Libera los recursos GL. */
   destruir(): void;
 }
@@ -151,6 +158,8 @@ uniform float uTiempo;       // s de reloj de pared (animaciones)
 uniform sampler2D uCorona;
 uniform float uCoronaLista;  // 1 si la textura está cargada
 uniform float uEscCorona;    // medio lado del quad de textura (px)
+uniform sampler2D uPerfil;   // perfil real 1D: r = altura/30°, a = mar
+uniform float uPerfilReal;   // 1 = hay perfil real del Observador (#48)
 
 const float PI = 3.14159265358979;
 
@@ -190,7 +199,8 @@ vec3 cieloDia(float alt, float az) {
 }
 
 // --- terreno ---------------------------------------------------------------
-// Perfil periódico en 360°: réplica exacta de alturaTerreno (cielo-luz.ts).
+// Perfil procedural periódico en 360°: réplica exacta de alturaTerreno
+// (cielo-luz.ts). Es el fallback cuando no hay perfil real (#48).
 float perfilTerreno(float az, float amplitud, float fase) {
   float a = radians(az);
   float s = 0.42
@@ -198,6 +208,14 @@ float perfilTerreno(float az, float amplitud, float fase) {
           + 0.19 * sin(17.0 * a + fase * 2.3)
           + 0.09 * sin(31.0 * a + fase * 3.7);
   return amplitud * max(0.06, s);
+}
+
+// Perfil real del Observador (#48): textura 1D por acimut con REPEAT (el
+// paneo de 360° no encuentra costura). r = altura angular / 30° (misma
+// constante que ALTURA_MAX_TEXTURA en cielo-horizonte.ts), a = mar [0,1].
+vec2 perfilReal(float az) {
+  vec4 t = texture2D(uPerfil, vec2(az / 360.0, 0.5));
+  return vec2(t.r * 30.0, t.a);
 }
 
 // --- limbo lunar irregular -------------------------------------------------
@@ -406,12 +424,29 @@ void main() {
   // ---- 5. Terreno (siluetas con parallax + suelo) ------------------------
   // Capas de lejos a cerca; la más cercana manda. Cada una lleva bruma
   // (mezcla con el cielo de su horizonte) y la luz ambiente real.
+  //
+  // Con perfil real (#48) la capa cercana usa las alturas angulares del
+  // Observador (textura 1D suavizada) y las dos lejanas son la misma
+  // silueta escalada — cordales que retroceden con el mismo parallax que
+  // el perfil procedural. Sin datos: el procedural de siempre.
   float azRel = az - uAzCentro;
   vec3 brumaHor = fondo;
-  // capa lejana
-  float h0 = perfilTerreno(uAzCentro + azRel * 1.0,   1.5, 0.0);
-  float h1 = perfilTerreno(uAzCentro + azRel * 1.045, 2.6, 2.1);
-  float h2 = perfilTerreno(uAzCentro + azRel * 1.09,  3.8, 4.4);
+  float az0 = uAzCentro + azRel * 1.0;   // capa lejana
+  float az1 = uAzCentro + azRel * 1.045;
+  float az2 = uAzCentro + azRel * 1.09;  // primer plano
+  float h0; float h1; float h2; float mar;
+  if (uPerfilReal > 0.5) {
+    h0 = 0.40 * perfilReal(az0).x;
+    h1 = 0.70 * perfilReal(az1).x;
+    vec2 cerca = perfilReal(az2);
+    h2 = cerca.x;
+    mar = cerca.y;
+  } else {
+    h0 = perfilTerreno(az0, 1.5, 0.0);
+    h1 = perfilTerreno(az1, 2.6, 2.1);
+    h2 = perfilTerreno(az2, 3.8, 4.4);
+    mar = 0.0;
+  }
   float aa = 1.2 / uPpg; // suavizado del filo en grados
   float c0 = 1.0 - smoothstep(h0 - aa, h0 + aa, alt);
   float c1 = 1.0 - smoothstep(h1 - aa, h1 + aa, alt);
@@ -421,6 +456,28 @@ void main() {
   // primer plano: se oscurece hacia abajo con la luz real
   float bajoHor = clamp(-alt / 14.0, 0.0, 1.0);
   vec3 t2 = uLuzAmb * vec3(0.30, 0.30, 0.34) * (1.0 - 0.65 * bajoHor);
+
+  // Horizonte marino (#48): donde el perfil real es mar, el primer plano
+  // es agua — línea de horizonte limpia (altura ~0), cielo reflejado
+  // atenuado y camino especular alargado del Sol / crepúsculo / corona:
+  // reflexión vertical cuya anchura crece con la cercanía (rugosidad del
+  // oleaje), el clásico reguero de luz sobre el agua.
+  if (mar > 0.001) {
+    float prof = clamp(-alt / 10.0, 0.0, 1.0);  // cercanía del agua
+    vec3 agua = brumaHor * (0.42 - 0.22 * prof)
+              + uLuzAmb * vec3(0.10, 0.14, 0.22);
+    float dAzSol = mod(az - uSolAltAz.y + 540.0, 360.0) - 180.0;
+    float ancho = 1.6 + 7.0 * prof;             // rugosidad: se ensancha
+    float camino = exp(-dAzSol * dAzSol / (ancho * ancho));
+    // Qué se refleja: fotosfera de día, corona y anillo crepuscular en la
+    // Totalidad — el reguero nunca se apaga del todo durante el eclipse.
+    float brilloSol = uFotosfera * uBrillo * 1.8
+                    + uAlfaCorona * 0.85
+                    + uAnillo360 * 0.4;
+    float rizo = 0.82 + 0.18 * sin(alt * 41.0 + az * 5.0 + uTiempo * 1.3);
+    agua += uTinte * camino * exp(-max(-alt, 0.0) * 0.22) * brilloSol * rizo;
+    t2 = mix(t2, agua, mar);
+  }
   color = mix(color, t0, c0);
   color = mix(color, t1, c1);
   color = mix(color, t2, c2);
@@ -585,6 +642,7 @@ export function crearRendererCielo(
     // El renderer puede haberse destruido antes de que cargue la imagen
     // (StrictMode monta doble): no tocar una textura ya liberada.
     if (destruido) return;
+    ctx.activeTexture(ctx.TEXTURE0);
     ctx.bindTexture(ctx.TEXTURE_2D, textura);
     ctx.texImage2D(
       ctx.TEXTURE_2D, 0, ctx.LUMINANCE, ctx.LUMINANCE,
@@ -593,6 +651,24 @@ export function crearRendererCielo(
     coronaLista = 1;
   };
   imagen.src = RUTA_TEXTURA_CORONA;
+
+  // --- Textura 1D del perfil real del horizonte (#48) ---------------------
+  // 512 × 1 LUMINANCE_ALPHA (potencia de dos → REPEAT: el paneo de 360° la
+  // muestrea sin costura). Hasta que llegue el perfil (o si no llega), un
+  // texel neutro y uPerfilReal = 0 mantienen el terreno procedural.
+  const texturaPerfilGL = ctx.createTexture();
+  ctx.activeTexture(ctx.TEXTURE1);
+  ctx.bindTexture(ctx.TEXTURE_2D, texturaPerfilGL);
+  ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_MIN_FILTER, ctx.LINEAR);
+  ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_MAG_FILTER, ctx.LINEAR);
+  ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_WRAP_S, ctx.REPEAT);
+  ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_WRAP_T, ctx.CLAMP_TO_EDGE);
+  ctx.texImage2D(
+    ctx.TEXTURE_2D, 0, ctx.LUMINANCE_ALPHA, 1, 1, 0,
+    ctx.LUMINANCE_ALPHA, ctx.UNSIGNED_BYTE, new Uint8Array([0, 0]),
+  );
+  ctx.activeTexture(ctx.TEXTURE0);
+  let perfilListo = 0;
 
   // Armónicos del limbo lunar irregular: constantes de la sesión.
   ctx.useProgram(progCielo);
@@ -634,6 +710,27 @@ export function crearRendererCielo(
     redimensionar(ancho: number, alto: number): void {
       if (canvas.width !== ancho) canvas.width = ancho;
       if (canvas.height !== alto) canvas.height = alto;
+    },
+
+    actualizarPerfil(datos: Uint8Array | null): void {
+      if (destruido) return;
+      ctx.activeTexture(ctx.TEXTURE1);
+      ctx.bindTexture(ctx.TEXTURE_2D, texturaPerfilGL);
+      if (datos) {
+        ctx.texImage2D(
+          ctx.TEXTURE_2D, 0, ctx.LUMINANCE_ALPHA,
+          TAM_TEXTURA_PERFIL, 1, 0,
+          ctx.LUMINANCE_ALPHA, ctx.UNSIGNED_BYTE, datos,
+        );
+        perfilListo = 1;
+      } else {
+        ctx.texImage2D(
+          ctx.TEXTURE_2D, 0, ctx.LUMINANCE_ALPHA, 1, 1, 0,
+          ctx.LUMINANCE_ALPHA, ctx.UNSIGNED_BYTE, new Uint8Array([0, 0]),
+        );
+        perfilListo = 0;
+      }
+      ctx.activeTexture(ctx.TEXTURE0);
     },
 
     dibujar(f: FotogramaCieloGL): void {
@@ -713,6 +810,11 @@ export function crearRendererCielo(
       ctx.bindTexture(ctx.TEXTURE_2D, textura);
       ctx.uniform1i(u(progCielo, "uCorona"), 0);
       ctx.uniform1f(u(progCielo, "uCoronaLista"), coronaLista);
+      ctx.activeTexture(ctx.TEXTURE1);
+      ctx.bindTexture(ctx.TEXTURE_2D, texturaPerfilGL);
+      ctx.uniform1i(u(progCielo, "uPerfil"), 1);
+      ctx.uniform1f(u(progCielo, "uPerfilReal"), perfilListo);
+      ctx.activeTexture(ctx.TEXTURE0);
       ctx.uniform1f(
         u(progCielo, "uEscCorona"),
         esc.luna.radio / FRACCION_LIMBO_CORONA,
@@ -757,6 +859,7 @@ export function crearRendererCielo(
       ctx.deleteBuffer(quad);
       ctx.deleteBuffer(bufEstrellas);
       ctx.deleteTexture(textura);
+      ctx.deleteTexture(texturaPerfilGL);
       ctx.deleteProgram(progCielo);
       ctx.deleteProgram(progEstrellas);
     },

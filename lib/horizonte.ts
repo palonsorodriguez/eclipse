@@ -156,6 +156,41 @@ export function anguloObstruccion(
 }
 
 /**
+ * Obstrucción completa de un acimut a partir de sus muestras radiales:
+ * ángulo dominante con curvatura ({@link anguloObstruccion}) más la
+ * fracción de muestras marinas. La usa `calcularPerfil` para el sector del
+ * eclipse y `cielo-horizonte` para el resto del círculo (issue #48), de
+ * modo que ambas mitades del perfil se derivan con la misma geometría.
+ */
+export function obstruccionDeMuestras(
+  elevacionObservador: number,
+  acimut: number,
+  muestras: readonly MuestraRadial[],
+): ObstruccionAcimut {
+  const { angulo, distanciaKm } = anguloObstruccion(
+    elevacionObservador,
+    muestras,
+  );
+  const marinas = muestras.filter((m) => m.elevacion <= UMBRAL_MAR_M).length;
+  return { acimut, angulo, distanciaKm, fraccionMar: marinas / muestras.length };
+}
+
+/**
+ * ¿Es este acimut un horizonte marino? La mayor parte del recorrido radial
+ * es mar y no asoma relieve por encima de {@link OBSTRUCCION_MARINA_MAX}.
+ * El mismo criterio que usa `evaluarHorizonte` para el veredicto `marino`,
+ * compartido con la Vista Cielo para dibujar agua (issue #48).
+ */
+export function esAcimutMarino(
+  o: Pick<ObstruccionAcimut, "angulo" | "fraccionMar">,
+): boolean {
+  return (
+    o.fraccionMar >= FRACCION_MAR_MINIMA &&
+    Math.max(0, o.angulo) <= OBSTRUCCION_MARINA_MAX
+  );
+}
+
+/**
  * Punto de destino sobre la esfera terrestre partiendo de `origen` con un
  * `acimut` (grados, 0 = norte) y una `distanciaKm` sobre la superficie.
  * Fórmula geodésica esférica estándar; error < 0,5 % frente al elipsoide,
@@ -379,17 +414,7 @@ async function calcularPerfil(
       distanciaKm,
       elevacion: elevaciones[desde + j]!,
     }));
-    const { angulo, distanciaKm } = anguloObstruccion(
-      elevacionObservador,
-      muestras,
-    );
-    const marinas = muestras.filter((m) => m.elevacion <= UMBRAL_MAR_M).length;
-    return {
-      acimut,
-      angulo,
-      distanciaKm,
-      fraccionMar: marinas / muestras.length,
-    };
+    return obstruccionDeMuestras(elevacionObservador, acimut, muestras);
   });
 
   return { elevacionObservador, acimuts: porAcimut };
@@ -444,10 +469,7 @@ export function evaluarHorizonte(
   let tipo: TipoHorizonte;
   if (obstruccionEnSol >= altitudSol) {
     tipo = "obstruido";
-  } else if (
-    enSol.fraccionMar >= FRACCION_MAR_MINIMA &&
-    obstruccionEnSol <= OBSTRUCCION_MARINA_MAX
-  ) {
+  } else if (esAcimutMarino(enSol)) {
     tipo = "marino";
   } else {
     tipo = "despejado";

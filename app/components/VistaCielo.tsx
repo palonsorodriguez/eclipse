@@ -6,7 +6,10 @@
  *
  * Render principal: WebGL (`lib/cielo-gl.ts`) — dispersión atmosférica por
  * shader, corona real, Luna oclusora sin "pop", terreno con parallax,
- * ~50 estrellas y planetas reales. Interacción: arrastrar para mirar
+ * ~50 estrellas y planetas reales. El terreno es el paisaje REAL del
+ * Observador (issue #48, `lib/cielo-horizonte.ts`): silueta desde el
+ * perfil de elevación por acimut, con horizonte marino donde toca; sin
+ * datos, la silueta procedural. Interacción: arrastrar para mirar
  * alrededor (paneo de acimut 360° con inercia, `lib/cielo-camara.ts`),
  * botón de pantalla completa y calidad adaptativa (`lib/cielo-luz.ts`).
  *
@@ -54,6 +57,12 @@ import {
   type CuerpoDomo,
 } from "@/lib/cielo-estrellas";
 import { crearRendererCielo, type RendererCielo } from "@/lib/cielo-gl";
+import {
+  alturaPerfil,
+  fetchPerfilCielo,
+  texturaPerfil,
+  type PerfilCielo,
+} from "@/lib/cielo-horizonte";
 import {
   alfaLunaFantasma,
   dibujarHud,
@@ -196,6 +205,33 @@ export default function VistaCielo({ observador = FERROL }: VistaCieloProps) {
     }));
   }, []);
 
+  // --- Perfil real del horizonte (issue #48) ------------------------------
+  // El paisaje del render es el del Observador: alturas angulares reales
+  // por acimut (sector del eclipse compartido con el panel + resto del
+  // círculo, ver cielo-horizonte.ts). Solo se recalcula al cambiar de
+  // Observador; si la API falla, queda el terreno procedural (null).
+  const [perfilCielo, setPerfilCielo] = useState<PerfilCielo | null>(null);
+  useEffect(() => {
+    let cancelado = false;
+    setPerfilCielo(null);
+    const acimutC1 = engine.sunMoonPositions(circ.c1.instante).sol.acimut;
+    const acimutC4 = engine.sunMoonPositions(circ.c4.instante).sol.acimut;
+    fetchPerfilCielo(
+      { lat: observador.lat, lon: observador.lon },
+      acimutC1,
+      acimutC4,
+    )
+      .then((perfil) => {
+        if (!cancelado) setPerfilCielo(perfil);
+      })
+      .catch(() => {
+        // Sin datos de elevación: el shader mantiene la silueta procedural.
+      });
+    return () => {
+      cancelado = true;
+    };
+  }, [engine, circ, observador.lat, observador.lon]);
+
   // --- Cuerpos del domo (GL): cacheados por segundo simulado --------------
   const domoCacheRef = useRef<{ clave: number; cuerpos: CuerpoDomo[] }>({
     clave: NaN,
@@ -210,15 +246,19 @@ export default function VistaCielo({ observador = FERROL }: VistaCieloProps) {
         domoCacheRef.current = {
           clave,
           // El terreno oculta lo que queda tras su silueta (el shader no
-          // conoce las colinas en el pase de estrellas).
-          cuerpos: todos.filter(
-            (c) => c.altitud > altitudMinimaVisible(c.acimut),
+          // conoce las colinas en el pase de estrellas). Con perfil real,
+          // la silueta es la del Observador: sobre el mar se ven estrellas
+          // hasta casi el horizonte; tras un monte real, no.
+          cuerpos: todos.filter((c) =>
+            perfilCielo
+              ? c.altitud > alturaPerfil(perfilCielo.alturas, c.acimut)
+              : c.altitud > altitudMinimaVisible(c.acimut),
           ),
         };
       }
       return domoCacheRef.current.cuerpos;
     },
-    [observador],
+    [observador, perfilCielo],
   );
 
   // --- Cuerpos del fallback 2D: mismo cacheo que la versión clásica -------
@@ -445,6 +485,15 @@ export default function VistaCielo({ observador = FERROL }: VistaCieloProps) {
       rendererRef.current = null;
     };
   }, [modoRender]);
+
+  // Sube el perfil real al renderer cuando llega (o al recrearse el
+  // renderer). Declarado tras el efecto de creación: en un cambio de modo,
+  // primero existe el renderer y después recibe el perfil.
+  useEffect(() => {
+    rendererRef.current?.actualizarPerfil(
+      perfilCielo ? texturaPerfil(perfilCielo) : null,
+    );
+  }, [modoRender, perfilCielo]);
 
   // Canvas 2D del fallback: nitidez en pantallas de alta densidad.
   useEffect(() => {
