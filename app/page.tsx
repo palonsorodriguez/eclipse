@@ -2,13 +2,15 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import BarraTiempo from "./components/BarraTiempo";
 import BuscadorMunicipio from "./components/BuscadorMunicipio";
 import PanelCircunstancias from "./components/PanelCircunstancias";
 import VistaCielo from "./components/VistaCielo";
 import { VENTANA_TOTALIDAD } from "@/lib/eclipse-2026";
 import type { Municipio } from "@/lib/municipios";
+import { relojLineaDeTiempo } from "@/lib/reloj-tiempo";
+import { construirQuery, leerEstado, municipioPorSlug } from "@/lib/url-estado";
 
 // MapLibre toca `window` al cargar: la Vista Mapa solo existe en cliente.
 const VistaMapa = dynamic(() => import("./components/VistaMapa"), {
@@ -18,6 +20,59 @@ const VistaMapa = dynamic(() => import("./components/VistaMapa"), {
 
 export default function Home() {
   const [observador, setObservador] = useState<Municipio | null>(null);
+  // La URL no se reescribe hasta haber restaurado el estado entrante (#42):
+  // si no, el primer render pisaría el `?m=…` recién abierto.
+  const urlRestaurada = useRef(false);
+
+  // Restaurar `?m=<slug>&t=<HHMMSS>` al abrir un enlace compartido (#42).
+  // La `t` se fija por la API pública del reloj (`saltarA` recorta al rango);
+  // el municipio se resuelve contra el Nomenclátor, importado dinámicamente
+  // para no meter su JSON (~620 KB) en el bundle inicial.
+  useEffect(() => {
+    const { slug, t } = leerEstado(window.location.search);
+    if (t !== null) relojLineaDeTiempo.saltarA(t);
+    if (!slug) {
+      urlRestaurada.current = true;
+      return;
+    }
+    let cancelado = false;
+    import("@/lib/municipios").then(({ municipios }) => {
+      if (cancelado) return;
+      const municipio = municipioPorSlug(slug, municipios);
+      if (municipio) setObservador(municipio);
+      urlRestaurada.current = true;
+    });
+    return () => {
+      cancelado = true;
+    };
+  }, []);
+
+  // Reflejar Observador y Línea de tiempo en la URL con replaceState (sin
+  // ensuciar el historial). Los cambios de `t` llegan por la suscripción de
+  // UI del reloj y se agrupan (300 ms): Safari limita el ritmo de
+  // replaceState y en reproducción la t cambia cada segundo simulado.
+  useEffect(() => {
+    let temporizador: number | undefined;
+    const escribir = () => {
+      if (!urlRestaurada.current) return;
+      const t = relojLineaDeTiempo.leerTUi();
+      // Recién aterrizado, sin Observador ni slider tocado: URL limpia.
+      const query =
+        observador === null && t === relojLineaDeTiempo.tMin
+          ? ""
+          : construirQuery({ municipio: observador, t });
+      history.replaceState(null, "", `${window.location.pathname}${query}`);
+    };
+    const baja = relojLineaDeTiempo.suscribirUi(() => {
+      window.clearTimeout(temporizador);
+      temporizador = window.setTimeout(escribir, 300);
+    });
+    escribir(); // el cambio de Observador se refleja de inmediato
+    return () => {
+      window.clearTimeout(temporizador);
+      baja();
+    };
+  }, [observador]);
 
   // Clic en la Vista Mapa → Observador en el municipio más cercano.
   // `lib/municipios` se importa dinámicamente: su JSON (~620 KB) no debe

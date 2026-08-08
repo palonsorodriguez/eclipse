@@ -9,11 +9,38 @@ const spaceGrotesk = Space_Grotesk({
   variable: "--fuente-titulos",
 });
 
+const DESCRIPCION =
+  "Simulador del eclipse solar total del 12 de agosto de 2026 visto desde cualquier municipio de España.";
+
+// Título de la tarjeta al compartir (WhatsApp, redes) — ticket #42.
+const TITULO_OG = "¿Cómo se verá el eclipse del 12-08-2026 desde tu municipio?";
+
 export const metadata: Metadata = {
+  // Base para resolver la imagen OG en absoluto: dominio de producción en
+  // Vercel; en local, el puerto de `next dev`.
+  metadataBase: new URL(
+    process.env.VERCEL_PROJECT_PRODUCTION_URL
+      ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+      : "http://localhost:3000",
+  ),
   title: "Eclipse — 12 de agosto de 2026",
-  description:
-    "Simulador del eclipse solar total del 12 de agosto de 2026 visto desde cualquier municipio de España.",
+  description: DESCRIPCION,
   manifest: "/manifest.webmanifest",
+  openGraph: {
+    title: TITULO_OG,
+    description: DESCRIPCION,
+    type: "website",
+    locale: "es_ES",
+    siteName: "Eclipse",
+    // Imagen estática versionada; se regenera con `node scripts/generar-og.mjs`.
+    images: [{ url: "/og.png", width: 1200, height: 630, alt: TITULO_OG }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: TITULO_OG,
+    description: DESCRIPCION,
+    images: ["/og.png"],
+  },
 };
 
 export const viewport: Viewport = {
