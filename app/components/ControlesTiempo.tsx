@@ -7,9 +7,10 @@
  * los Contactos que existan para el Observador (C2/C3 no existen en un
  * eclipse parcial).
  *
- * El estado del reloj llega en `linea` (useLineaDeTiempo); la preferencia
- * de velocidad es compartida entre vistas por el store del propio hook.
- * Cada vista aporta sus propias marcas sobre el slider.
+ * El estado del reloj llega en `linea` (useLineaDeTiempo); el reloj entero
+ * es único y compartido (`lib/reloj-tiempo.ts`), así que play, pausa,
+ * salto o arrastre desde cualquiera de las dos barras mueven todas las
+ * vistas a la vez. Cada vista aporta sus propias marcas sobre el slider.
  */
 
 import { destinosSalto, type ContactosMs } from "@/lib/linea-tiempo-velocidad";

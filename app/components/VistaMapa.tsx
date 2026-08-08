@@ -10,7 +10,8 @@
  * - Datos estáticos: `lib/geodata.ts` (banda, isolíneas, umbra cada 30 s).
  * - Geometría pura: `lib/mapa.ts` (polígono de la banda, interpolación de
  *   la umbra, contorno real → GeoJSON, rejilla en vivo + contorno d3).
- * - Reloj: `lib/useLineaDeTiempo.ts`, el mismo patrón que la Vista Cielo.
+ * - Reloj: `lib/reloj-tiempo.ts` vía `useLineaDeTiempo` — el reloj único
+ *   compartido con la Vista Cielo (mismo t, mismo play, mismo bucle).
  *
  * Este componente se importa con `next/dynamic` y `ssr: false` desde
  * `app/page.tsx`: MapLibre toca `window` al cargar y no sobrevive al SSR.
@@ -56,6 +57,7 @@ import {
   type RejillaOscurecimiento,
 } from "@/lib/mapa";
 import { useLineaDeTiempo } from "@/lib/useLineaDeTiempo";
+import { T_MIN, T_MAX } from "@/lib/reloj-tiempo";
 
 /** Estilo de teselas: CARTO Positron, libre y sin clave API. */
 const ESTILO_MAPA =
@@ -72,10 +74,6 @@ const LIMITES_MAPA: [[number, number], [number, number]] = [
   [-21, 26],
   [13, 51],
 ];
-
-/** Línea de tiempo: 19:15–21:30 CEST del 12-08-2026 (CEST = UT+2). */
-const T_MIN = Date.UTC(2026, 7, 12, 17, 15, 0);
-const T_MAX = Date.UTC(2026, 7, 12, 19, 30, 0);
 
 /** Hitos de país sobre la Línea de tiempo (hora peninsular). */
 const HITOS = [
@@ -625,12 +623,9 @@ export default function VistaMapa({ observador, onSelect }: VistaMapaProps) {
     };
   }, [lat, lon]);
 
-  const linea = useLineaDeTiempo({
-    tMin: T_MIN,
-    tMax: T_MAX,
-    contactos,
-    onFrame: pintarUmbra,
-  });
+  // Reloj único de la Línea de tiempo, compartido con la Vista Cielo:
+  // esta vista solo suscribe su pintor de la umbra al bucle común.
+  const linea = useLineaDeTiempo({ contactos, onFrame: pintarUmbra });
   const { tUi } = linea;
 
   // --- Marcador del Observador ----------------------------------------------
