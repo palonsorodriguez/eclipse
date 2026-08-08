@@ -6,8 +6,13 @@
  * a las dos instancias de ControlesTiempo (una por vista, tres filas cada
  * una) que se montaban antes.
  *
- *   [▶] [slider con marcas de Contactos clicables] [hora CEST + %] [velocidad]
+ *   [▶] [🔴 AHORA] [slider con marcas de Contactos] [hora CEST + %] [velocidad]
  *
+ * - El botón 🔴 AHORA (issue #40) entra en modo directo: la simulación se
+ *   pega al reloj real (el día del eclipse la app arranca así sola). Antes
+ *   de la ventana muestra la cuenta atrás ("faltan 3d 14h") y pulsar
+ *   previsualiza la hora actual proyectada sobre el día 12. Slider, saltos
+ *   o pausa salen del directo; el botón permite volver.
  * - Las marcas C1/C2/Máx/C3/C4 sobre el slider SON los botones de salto:
  *   tocar una salta a su Contacto con la anticipación de 12 s de
  *   `destinosSalto` (área táctil ~32 px, aria-label con la hora CEST).
@@ -20,10 +25,10 @@
  *   <style> del componente); nada de scroll horizontal.
  */
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { createEclipseEngine, type Observador } from "@/lib/eclipse-engine";
 import { destinosSalto, type ContactosMs } from "@/lib/linea-tiempo-velocidad";
-import { T_MIN, T_MAX } from "@/lib/reloj-tiempo";
+import { relojLineaDeTiempo, T_MIN, T_MAX } from "@/lib/reloj-tiempo";
 import {
   useLineaDeTiempo,
   VELOCIDADES_FIJAS,
@@ -70,6 +75,28 @@ export function siguienteModo(modo: ModoVelocidad): ModoVelocidad {
 /** Etiqueta visible del modo en el botón de velocidad. */
 export function etiquetaModo(modo: ModoVelocidad): string {
   return modo === "resumen" ? "Resumen" : `×${modo}`;
+}
+
+// ---------------------------------------------------------------------------
+// Botón AHORA: modo directo y cuenta atrás (issue #40)
+// ---------------------------------------------------------------------------
+
+/**
+ * Cuenta atrás al inicio del eclipse: cuánto falta desde `ahoraMs` hasta
+ * T_MIN, en dos unidades ("3d 14h", "14h 5m", "3m 20s"), o null si la
+ * ventana ya ha empezado. El "faltan" lo pone el componente (en móvil se
+ * oculta para que la fila quepa en 375 px).
+ */
+export function cuentaAtrasEclipse(ahoraMs: number): string | null {
+  const restante = T_MIN - ahoraMs;
+  if (restante <= 0) return null;
+  const d = Math.floor(restante / 86_400_000);
+  const h = Math.floor((restante % 86_400_000) / 3_600_000);
+  const m = Math.floor((restante % 3_600_000) / 60_000);
+  const s = Math.floor((restante % 60_000) / 1000);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m ${s}s`;
 }
 
 // ---------------------------------------------------------------------------
@@ -169,10 +196,12 @@ const CSS_BARRA = `
   font-variant-numeric: tabular-nums;
 }
 .bt-marca:hover { text-decoration: underline; }
+.bt-vel { min-width: 74px; }
 @media (max-width: 480px) {
-  .bt-fila { gap: 8px; padding: 0 10px; }
-  .bt-seg, .bt-pct { display: none; }
+  .bt-fila { gap: 6px; padding: 0 10px; }
+  .bt-seg, .bt-pct, .bt-prefijo { display: none; }
   .bt-hora-grande { font-size: 1.05rem; }
+  .bt-vel { min-width: 56px; }
 }
 `;
 
@@ -181,9 +210,36 @@ export interface BarraTiempoProps {
   observador?: Observador | null;
 }
 
+// En SSR el reloj no está en directo: valor inicial estable.
+const leerEnDirectoServidor = (): boolean => false;
+
 export default function BarraTiempo({ observador }: BarraTiempoProps) {
   const lat = observador?.lat ?? FERROL.lat;
   const lon = observador?.lon ?? FERROL.lon;
+  const reloj = relojLineaDeTiempo;
+
+  const enDirecto = useSyncExternalStore(
+    reloj.suscribirUi,
+    reloj.leerEnDirecto,
+    leerEnDirectoServidor,
+  );
+
+  // El día del eclipse, dentro de la ventana, la app arranca en directo
+  // (el reloj garantiza que solo actúa la primera vez por sesión).
+  useEffect(() => {
+    reloj.autoArrancarDirecto();
+  }, [reloj]);
+
+  // Cuenta atrás al eclipse (null en SSR, en la ventana y después): reloj
+  // real leído cada segundo. setState con la misma cadena no re-renderiza,
+  // así que lejos del eclipse el tic es gratis.
+  const [cuenta, setCuenta] = useState<string | null>(null);
+  useEffect(() => {
+    const tic = (): void => setCuenta(cuentaAtrasEclipse(reloj.leerAhora()));
+    tic();
+    const id = setInterval(tic, 1000);
+    return () => clearInterval(id);
+  }, [reloj]);
 
   // Motor astronómico del Observador: Contactos para marcas/curva del
   // resumen y Oscurecimiento para el indicador de la barra.
@@ -254,6 +310,54 @@ export default function BarraTiempo({ observador }: BarraTiempoProps) {
           }}
         >
           {reproduciendo ? "⏸" : "▶"}
+        </button>
+
+        {/* Botón AHORA: modo directo / cuenta atrás al eclipse (issue #40) */}
+        <button
+          type="button"
+          onClick={reloj.pulsarAhora}
+          aria-pressed={enDirecto}
+          aria-label={
+            enDirecto
+              ? "Modo directo activado: la simulación sigue el reloj real. Mover el slider o saltar lo desactiva"
+              : cuenta
+                ? `Faltan ${cuenta} para el eclipse. Pulsa para previsualizar esta hora en el día 12`
+                : "AHORA: sincronizar la simulación con el reloj real"
+          }
+          title={
+            enDirecto
+              ? "En directo: pegado al reloj real"
+              : cuenta
+                ? `Cuenta atrás al eclipse: faltan ${cuenta}. Pulsa para previsualizar esta hora en el día 12`
+                : "Sincronizar con el reloj real"
+          }
+          style={{
+            flex: "none",
+            padding: "6px 8px",
+            borderRadius: 6,
+            border: enDirecto
+              ? "1px solid #ff5252"
+              : "1px solid rgba(255, 255, 255, 0.3)",
+            background: enDirecto ? "rgba(255, 82, 82, 0.18)" : "transparent",
+            color: enDirecto ? "#ffb3b3" : "inherit",
+            fontSize: "0.75rem",
+            cursor: "pointer",
+            whiteSpace: "nowrap",
+            fontVariantNumeric: "tabular-nums",
+          }}
+        >
+          {enDirecto ? (
+            <>
+              🔴 <span className="bt-prefijo">EN </span>DIRECTO
+            </>
+          ) : cuenta ? (
+            <>
+              🔴 <span className="bt-prefijo">faltan </span>
+              {cuenta}
+            </>
+          ) : (
+            "🔴 AHORA"
+          )}
         </button>
 
         {/* Slider con las marcas de Contactos clicables encima */}
@@ -334,6 +438,7 @@ export default function BarraTiempo({ observador }: BarraTiempoProps) {
 
         <button
           type="button"
+          className="bt-vel"
           onClick={() => fijarModo(siguienteModo(modo))}
           aria-label={`Velocidad de reproducción: ${etiquetaModo(modo)}. Pulsa para cambiar`}
           title={
@@ -343,7 +448,6 @@ export default function BarraTiempo({ observador }: BarraTiempoProps) {
           }
           style={{
             flex: "none",
-            minWidth: 74,
             padding: "6px 8px",
             borderRadius: 6,
             border: "1px solid rgba(255, 255, 255, 0.3)",

@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { crearRelojLineaDeTiempo } from "@/lib/reloj-tiempo";
+import {
+  crearRelojLineaDeTiempo,
+  T_MAX as T_MAX_ECLIPSE,
+  T_MIN as T_MIN_ECLIPSE,
+} from "@/lib/reloj-tiempo";
 import type { ContactosMs } from "@/lib/linea-tiempo-velocidad";
 
 // ---------------------------------------------------------------------------
@@ -205,5 +209,164 @@ describe("crearRelojLineaDeTiempo", () => {
     avanzarFrame(16); // dt 0
     avanzarFrame(16); // 16 ms × 600 = 9,6 s simulados
     expect(tiempos.at(-1)).toBe(9_600);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Modo directo AHORA (issue #40): el día del eclipse el tiempo simulado va
+// pegado al reloj real. El proveedor de tiempo es la frontera del sistema:
+// se inyecta uno falso que los tests mueven a mano.
+// ---------------------------------------------------------------------------
+
+describe("modo directo AHORA", () => {
+  test("pulsarAhora dentro de la ventana pega el tiempo simulado al reloj real", () => {
+    let ahoraReal = 120_000;
+    const reloj = crearRelojLineaDeTiempo({
+      tMin: T_MIN,
+      tMax: T_MAX,
+      ahora: () => ahoraReal,
+    });
+    const tiempos: number[] = [];
+    reloj.suscribirFrame((t) => tiempos.push(t));
+
+    reloj.pulsarAhora();
+    expect(reloj.leerEnDirecto()).toBe(true);
+    expect(reloj.leerReproduciendo()).toBe(true);
+    expect(tiempos.at(-1)).toBe(120_000); // clavado desde ya
+
+    // El reloj real avanza 5 s aunque el rAF solo entregue frames de 16 ms:
+    // el directo lee el reloj real, no acumula dt (sin deriva).
+    ahoraReal = 125_000;
+    avanzarFrame(16);
+    avanzarFrame(16);
+    expect(tiempos.at(-1)).toBe(125_000);
+    expect(reloj.leerTUi()).toBe(125_000);
+  });
+
+  test("el slider y los saltos salen del directo, y el botón permite volver", () => {
+    let ahoraReal = 120_000;
+    const reloj = crearRelojLineaDeTiempo({
+      tMin: T_MIN,
+      tMax: T_MAX,
+      ahora: () => ahoraReal,
+    });
+    const tiempos: number[] = [];
+    reloj.suscribirFrame((t) => tiempos.push(t));
+
+    reloj.pulsarAhora();
+    reloj.fijarTiempo(60_000); // arrastre del slider
+    expect(reloj.leerEnDirecto()).toBe(false);
+    expect(tiempos.at(-1)).toBe(60_000); // manda el usuario, no el reloj real
+
+    reloj.pulsarAhora(); // el botón devuelve al directo
+    expect(reloj.leerEnDirecto()).toBe(true);
+    expect(tiempos.at(-1)).toBe(120_000);
+
+    reloj.saltarA(30_000); // un salto también sale
+    expect(reloj.leerEnDirecto()).toBe(false);
+    expect(tiempos.at(-1)).toBe(30_000);
+  });
+
+  test("pausar sale del modo directo", () => {
+    const ahoraReal = 120_000;
+    const reloj = crearRelojLineaDeTiempo({
+      tMin: T_MIN,
+      tMax: T_MAX,
+      ahora: () => ahoraReal,
+    });
+    reloj.suscribirFrame(() => {});
+
+    reloj.pulsarAhora();
+    reloj.alternarReproduccion(); // pausa
+    expect(reloj.leerEnDirecto()).toBe(false);
+    expect(reloj.leerReproduciendo()).toBe(false);
+  });
+
+  test("al acabarse la ventana el directo se apaga y el reloj queda en tMax", () => {
+    let ahoraReal = T_MAX - 2_000;
+    const reloj = crearRelojLineaDeTiempo({
+      tMin: T_MIN,
+      tMax: T_MAX,
+      ahora: () => ahoraReal,
+    });
+    const tiempos: number[] = [];
+    reloj.suscribirFrame((t) => tiempos.push(t));
+
+    reloj.pulsarAhora();
+    ahoraReal = T_MAX + 30_000; // el eclipse (la ventana) ya terminó
+    avanzarFrame(16);
+    expect(tiempos.at(-1)).toBe(T_MAX);
+    expect(reloj.leerEnDirecto()).toBe(false);
+    expect(reloj.leerReproduciendo()).toBe(false);
+  });
+
+  test("autoArrancarDirecto entra en directo al montar dentro de la ventana", () => {
+    const reloj = crearRelojLineaDeTiempo({
+      tMin: T_MIN,
+      tMax: T_MAX,
+      ahora: () => 300_000,
+    });
+    const tiempos: number[] = [];
+    reloj.suscribirFrame((t) => tiempos.push(t));
+
+    reloj.autoArrancarDirecto();
+    expect(reloj.leerEnDirecto()).toBe(true);
+    expect(tiempos.at(-1)).toBe(300_000);
+  });
+
+  test("autoArrancarDirecto no hace nada fuera de la ventana", () => {
+    const reloj = crearRelojLineaDeTiempo({
+      tMin: T_MIN,
+      tMax: T_MAX,
+      ahora: () => T_MAX + 86_400_000, // un día después
+    });
+    reloj.autoArrancarDirecto();
+    expect(reloj.leerEnDirecto()).toBe(false);
+    expect(reloj.leerReproduciendo()).toBe(false);
+    expect(reloj.leerTUi()).toBe(T_MIN);
+  });
+
+  test("autoArrancarDirecto solo actúa una vez: un remontaje no deshace la salida", () => {
+    const reloj = crearRelojLineaDeTiempo({
+      tMin: T_MIN,
+      tMax: T_MAX,
+      ahora: () => 300_000,
+    });
+    reloj.suscribirFrame(() => {});
+
+    reloj.autoArrancarDirecto();
+    reloj.fijarTiempo(60_000); // el usuario sale del directo…
+    reloj.autoArrancarDirecto(); // …y otra vista se monta después
+    expect(reloj.leerEnDirecto()).toBe(false);
+    expect(reloj.leerTUi()).toBe(60_000);
+  });
+
+  test("antes de la ventana, pulsarAhora previsualiza el instante actual del día 12", () => {
+    // 9 de agosto a las 20:15 CEST (18:15 UT), tres días antes del eclipse.
+    const reloj = crearRelojLineaDeTiempo({
+      tMin: T_MIN_ECLIPSE,
+      tMax: T_MAX_ECLIPSE,
+      ahora: () => Date.UTC(2026, 7, 9, 18, 15, 42),
+    });
+    const tiempos: number[] = [];
+    reloj.suscribirFrame((t) => tiempos.push(t));
+
+    reloj.pulsarAhora();
+    expect(reloj.leerEnDirecto()).toBe(false); // previsualización, no directo
+    expect(tiempos.at(-1)).toBe(Date.UTC(2026, 7, 12, 18, 15, 42));
+  });
+
+  test("la previsualización se recorta a la ventana si la hora actual cae fuera", () => {
+    // A las 10:00 UT el día 12 aún no ha empezado la Línea de tiempo.
+    const reloj = crearRelojLineaDeTiempo({
+      tMin: T_MIN_ECLIPSE,
+      tMax: T_MAX_ECLIPSE,
+      ahora: () => Date.UTC(2026, 7, 3, 10, 0, 0),
+    });
+    const tiempos: number[] = [];
+    reloj.suscribirFrame((t) => tiempos.push(t));
+
+    reloj.pulsarAhora();
+    expect(tiempos.at(-1)).toBe(T_MIN_ECLIPSE);
   });
 });

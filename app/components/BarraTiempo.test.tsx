@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, test } from "vitest";
 import BarraTiempo, {
+  cuentaAtrasEclipse,
   marcasBarra,
   siguienteModo,
   type MarcaBarra,
@@ -85,6 +86,23 @@ describe("marcasBarra (marcas de Contactos clicables)", () => {
   });
 });
 
+describe("cuentaAtrasEclipse (botón AHORA antes de la ventana)", () => {
+  test("a días vista cuenta en días y horas", () => {
+    // 9 de agosto a las 03:15 UT: exactamente 3d 14h antes de T_MIN.
+    expect(cuentaAtrasEclipse(Date.UTC(2026, 7, 9, 3, 15, 0))).toBe("3d 14h");
+  });
+
+  test("el mismo día cuenta en horas y minutos, y al final en minutos y segundos", () => {
+    expect(cuentaAtrasEclipse(Date.UTC(2026, 7, 12, 14, 10, 0))).toBe("3h 5m");
+    expect(cuentaAtrasEclipse(Date.UTC(2026, 7, 12, 17, 11, 40))).toBe("3m 20s");
+  });
+
+  test("dentro de la ventana ya no hay cuenta atrás", () => {
+    expect(cuentaAtrasEclipse(T_MIN)).toBeNull();
+    expect(cuentaAtrasEclipse(Date.UTC(2026, 7, 12, 18, 0, 0))).toBeNull();
+  });
+});
+
 describe("BarraTiempo", () => {
   test("una sola fila: play, slider, marcas clicables, hora CEST y velocidad", () => {
     const html = renderToStaticMarkup(<BarraTiempo />);
@@ -98,5 +116,14 @@ describe("BarraTiempo", () => {
     expect(html).toContain("Velocidad de reproducción: Resumen");
     // Play visible.
     expect(html).toContain('aria-label="Reproducir"');
+  });
+
+  test("el botón AHORA está en la barra, sin directo activado al servir", () => {
+    const html = renderToStaticMarkup(<BarraTiempo />);
+    expect(html).toContain("🔴 AHORA");
+    expect(html).toContain(
+      'aria-label="AHORA: sincronizar la simulación con el reloj real"',
+    );
+    expect(html).toContain('aria-pressed="false"');
   });
 });
