@@ -9,21 +9,14 @@
  * - Geometría/color puros: `lib/cielo-render.ts` (proyección, zoom de
  *   discos documentado, curva de brillo).
  * - Pintado: `lib/cielo-draw.ts`.
- *
- * Reloj y render desacoplados: el tiempo simulado vive en un ref que un
- * bucle de requestAnimationFrame avanza y dibuja directamente en el canvas;
- * React solo re-renderiza el HUD cuando cambia el segundo mostrado.
+ * - Reloj: `lib/useLineaDeTiempo.ts` (rAF + ref, compartido con la
+ *   Vista Mapa), que dibuja cada frame directamente en el canvas.
  */
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { createEclipseEngine, type Observador } from "@/lib/eclipse-engine";
 import { configEscena, dibujarEscena } from "@/lib/cielo-draw";
+import { useLineaDeTiempo } from "@/lib/useLineaDeTiempo";
 
 /** Ferrol, por defecto hasta que el buscador de municipios esté integrado. */
 const FERROL: Observador = { lat: 43.4832, lon: -8.2369 };
@@ -68,15 +61,6 @@ export default function VistaCielo({ observador = FERROL }: VistaCieloProps) {
     return configEscena(acimutSol, ANCHO_CANVAS, ALTO_CANVAS);
   }, [engine, circ]);
 
-  // Tiempo simulado: la verdad vive en el ref (avanzado por rAF);
-  // el estado solo refleja el segundo mostrado en el HUD/slider.
-  const tRef = useRef<number>(T_MIN);
-  const ultimoSegRef = useRef<number>(T_MIN);
-  const [tUi, setTUi] = useState<number>(T_MIN);
-  const [reproduciendo, setReproduciendo] = useState(false);
-  const reproduciendoRef = useRef(false);
-  const [oscuracionUi, setOscuracionUi] = useState(0);
-
   const enTotalidad = useCallback(
     (t: number): boolean =>
       circ.tipo === "total" &&
@@ -101,64 +85,37 @@ export default function VistaCielo({ observador = FERROL }: VistaCieloProps) {
     [cfg, engine, enTotalidad],
   );
 
-  // Bucle rAF: avanza el reloj si se reproduce y pinta cada frame.
+  const velocidad = useCallback(
+    (t: number): number =>
+      enTotalidad(t) ? VELOCIDAD_TOTALIDAD : VELOCIDAD_NORMAL,
+    [enTotalidad],
+  );
+
+  // Reloj de la Línea de tiempo: rAF + ref, pinta el canvas cada frame.
+  const { tUi, reproduciendo, alternarReproduccion, fijarTiempo } =
+    useLineaDeTiempo({ tMin: T_MIN, tMax: T_MAX, velocidad, onFrame: dibujar });
+
+  const oscuracionUi = useMemo(
+    () => engine.obscurationAt(new Date(tUi)),
+    [engine, tUi],
+  );
+
+  // Nitidez en pantallas de alta densidad; repinta tras redimensionar
+  // (cambiar el tamaño del canvas lo deja en blanco hasta el frame
+  // siguiente).
   useEffect(() => {
     const canvas = canvasRef.current;
     if (canvas) {
-      // Nitidez en pantallas de alta densidad.
       const dpr = Math.min(window.devicePixelRatio || 1, 2);
       canvas.width = ANCHO_CANVAS * dpr;
       canvas.height = ALTO_CANVAS * dpr;
       canvas.getContext("2d")?.scale(dpr, dpr);
     }
-    // Primer fotograma síncrono: el canvas nunca queda en blanco aunque
-    // el rAF tarde (p. ej. pestaña en segundo plano).
-    dibujar(tRef.current);
-
-    let raf = 0;
-    let previo = performance.now();
-    const paso = (ahora: number) => {
-      const dtMs = ahora - previo;
-      previo = ahora;
-      if (reproduciendoRef.current) {
-        const velocidad = enTotalidad(tRef.current)
-          ? VELOCIDAD_TOTALIDAD
-          : VELOCIDAD_NORMAL;
-        tRef.current = Math.min(tRef.current + dtMs * velocidad, T_MAX);
-        if (tRef.current >= T_MAX) {
-          reproduciendoRef.current = false;
-          setReproduciendo(false);
-        }
-      }
-      dibujar(tRef.current);
-      // HUD: solo re-render de React cuando cambia el segundo mostrado.
-      const seg = Math.floor(tRef.current / 1000) * 1000;
-      if (seg !== ultimoSegRef.current) {
-        ultimoSegRef.current = seg;
-        setTUi(seg);
-        setOscuracionUi(engine.obscurationAt(new Date(seg)));
-      }
-      raf = requestAnimationFrame(paso);
-    };
-    raf = requestAnimationFrame(paso);
-    return () => cancelAnimationFrame(raf);
-  }, [dibujar, enTotalidad, engine]);
-
-  const alternarReproduccion = () => {
-    if (!reproduciendo && tRef.current >= T_MAX) {
-      tRef.current = T_MIN; // volver a empezar desde el principio
-    }
-    reproduciendoRef.current = !reproduciendo;
-    setReproduciendo(!reproduciendo);
-  };
-
-  const alCambiarSlider = (valor: number) => {
-    tRef.current = valor;
-    ultimoSegRef.current = valor;
-    setTUi(valor);
-    setOscuracionUi(engine.obscurationAt(new Date(valor)));
-    dibujar(valor); // feedback inmediato al arrastrar, sin esperar al rAF
-  };
+    dibujar(tUi);
+    // `tUi` cambia cada segundo simulado y el rAF ya pinta cada frame:
+    // este efecto solo debe re-ejecutarse cuando cambia la escena.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dibujar]);
 
   // Marcas de Contactos sobre la Línea de tiempo.
   const marcas = useMemo(() => {
@@ -297,7 +254,7 @@ export default function VistaCielo({ observador = FERROL }: VistaCieloProps) {
             max={T_MAX}
             step={1000}
             value={tUi}
-            onChange={(e) => alCambiarSlider(Number(e.target.value))}
+            onChange={(e) => fijarTiempo(Number(e.target.value))}
             aria-label="Línea de tiempo del eclipse"
             style={{ flex: 1, accentColor: "#ffd98a" }}
           />
