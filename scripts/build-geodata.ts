@@ -364,13 +364,15 @@ function generarIsolineas(paso: number): IsolineasGeoJSON {
       properties: { nivel: mp.value },
       geometry: {
         type: "MultiPolygon",
-        // d3-contour devuelve coordenadas en el espacio de la rejilla
-        // (x ∈ [0, nx], y ∈ [0, ny]); se transforman a lon/lat.
+        // d3-contour devuelve coordenadas en el espacio de la rejilla y
+        // sitúa la muestra (i, j) en (i + 0,5, j + 0,5): hay que restar
+        // media celda al transformar a lon/lat (misma convención que
+        // `lib/mapa.ts`).
         coordinates: mp.coordinates.map((poligono) =>
           poligono.map((anillo) =>
             anillo.map(([x, y]) => [
-              redondear(REJILLA_LON_MIN + x * paso, 3),
-              redondear(REJILLA_LAT_MIN + y * paso, 3),
+              redondear(REJILLA_LON_MIN + (x - 0.5) * paso, 3),
+              redondear(REJILLA_LAT_MIN + (y - 0.5) * paso, 3),
             ]),
           ),
         ),
