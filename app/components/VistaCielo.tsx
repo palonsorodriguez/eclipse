@@ -17,6 +17,12 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { createEclipseEngine, type Observador } from "@/lib/eclipse-engine";
 import { configEscena, dibujarEscena } from "@/lib/cielo-draw";
 import { useLineaDeTiempo } from "@/lib/useLineaDeTiempo";
+import { brilloEscena } from "@/lib/cielo-render";
+import {
+  cuerposCielo,
+  UMBRAL_BRILLO_PLANETAS,
+  type CuerpoCielo,
+} from "@/lib/cielo-extras";
 
 /** Ferrol, por defecto hasta que el buscador de municipios esté integrado. */
 const FERROL: Observador = { lat: 43.4832, lon: -8.2369 };
@@ -29,6 +35,16 @@ const CEST_OFFSET_MS = 2 * 3600_000;
 /** Velocidades de reproducción: normal y saboreo de la Totalidad. */
 const VELOCIDAD_NORMAL = 60;
 const VELOCIDAD_TOTALIDAD = 5;
+
+/**
+ * Margen (ms) alrededor de C2/C3 en el que la reproducción ya va a cámara
+ * lenta: cubre el anillo de diamante (±4 s) y las perlas de Baily (±1,5 s),
+ * que a 60× durarían un parpadeo.
+ */
+const MARGEN_LENTO_MS = 8000;
+
+/** Lista vacía estable para cuando el cielo es demasiado brillante. */
+const SIN_CUERPOS: CuerpoCielo[] = [];
 
 const ANCHO_CANVAS = 960;
 const ALTO_CANVAS = 540;
@@ -69,26 +85,69 @@ export default function VistaCielo({ observador = FERROL }: VistaCieloProps) {
     [circ],
   );
 
+  const c2Ms = circ.c2 ? circ.c2.instante.getTime() : null;
+  const c3Ms = circ.c3 ? circ.c3.instante.getTime() : null;
+
+  // Cuerpos celestes extra (planetas y estrellas reales): solo se calculan
+  // cuando el cielo está lo bastante oscuro para verlos, y como mucho una
+  // vez por segundo simulado (se mueven < 0,005°/s: invisible por frame).
+  const cuerposCacheRef = useRef<{ clave: number; cuerpos: CuerpoCielo[] }>({
+    clave: NaN,
+    cuerpos: SIN_CUERPOS,
+  });
+  const obtenerCuerpos = useCallback(
+    (t: number, obscuracion: number, dentroTotalidad: boolean): CuerpoCielo[] => {
+      if (brilloEscena(obscuracion, dentroTotalidad) >= UMBRAL_BRILLO_PLANETAS) {
+        return SIN_CUERPOS;
+      }
+      const clave = Math.round(t / 1000);
+      if (cuerposCacheRef.current.clave !== clave) {
+        cuerposCacheRef.current = {
+          clave,
+          cuerpos: cuerposCielo(observador, new Date(clave * 1000)),
+        };
+      }
+      return cuerposCacheRef.current.cuerpos;
+    },
+    [observador],
+  );
+
   const dibujar = useCallback(
     (t: number) => {
       const canvas = canvasRef.current;
       const ctx = canvas?.getContext("2d");
       if (!canvas || !ctx) return;
       const fecha = new Date(t);
+      const obscuracion = engine.obscurationAt(fecha);
+      const dentroTotalidad = enTotalidad(t);
       dibujarEscena(ctx, {
         cfg,
         posiciones: engine.sunMoonPositions(fecha),
-        obscuracion: engine.obscurationAt(fecha),
-        enTotalidad: enTotalidad(t),
+        obscuracion,
+        enTotalidad: dentroTotalidad,
+        tMs: t,
+        c2Ms,
+        c3Ms,
+        cuerpos: obtenerCuerpos(t, obscuracion, dentroTotalidad),
       });
     },
-    [cfg, engine, enTotalidad],
+    [cfg, engine, enTotalidad, c2Ms, c3Ms, obtenerCuerpos],
   );
 
+  // Cámara lenta en la Totalidad y en su antesala/salida (anillo de
+  // diamante y perlas de Baily viven a segundos de C2/C3).
   const velocidad = useCallback(
-    (t: number): number =>
-      enTotalidad(t) ? VELOCIDAD_TOTALIDAD : VELOCIDAD_NORMAL,
-    [enTotalidad],
+    (t: number): number => {
+      const cercaDeContactos =
+        c2Ms !== null &&
+        c3Ms !== null &&
+        t >= c2Ms - MARGEN_LENTO_MS &&
+        t <= c3Ms + MARGEN_LENTO_MS;
+      return enTotalidad(t) || cercaDeContactos
+        ? VELOCIDAD_TOTALIDAD
+        : VELOCIDAD_NORMAL;
+    },
+    [enTotalidad, c2Ms, c3Ms],
   );
 
   // Reloj de la Línea de tiempo: rAF + ref, pinta el canvas cada frame.
