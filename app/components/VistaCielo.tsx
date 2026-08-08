@@ -17,6 +17,8 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { createEclipseEngine, type Observador } from "@/lib/eclipse-engine";
 import { configEscena, dibujarEscena } from "@/lib/cielo-draw";
 import { useLineaDeTiempo } from "@/lib/useLineaDeTiempo";
+import type { ContactosMs } from "@/lib/linea-tiempo-velocidad";
+import ControlesTiempo from "./ControlesTiempo";
 import { brilloEscena } from "@/lib/cielo-render";
 import {
   cuerposCielo,
@@ -31,17 +33,6 @@ const FERROL: Observador = { lat: 43.4832, lon: -8.2369 };
 const T_MIN = Date.UTC(2026, 7, 12, 17, 15, 0);
 const T_MAX = Date.UTC(2026, 7, 12, 19, 30, 0);
 const CEST_OFFSET_MS = 2 * 3600_000;
-
-/** Velocidades de reproducción: normal y saboreo de la Totalidad. */
-const VELOCIDAD_NORMAL = 60;
-const VELOCIDAD_TOTALIDAD = 5;
-
-/**
- * Margen (ms) alrededor de C2/C3 en el que la reproducción ya va a cámara
- * lenta: cubre el anillo de diamante (±4 s) y las perlas de Baily (±1,5 s),
- * que a 60× durarían un parpadeo.
- */
-const MARGEN_LENTO_MS = 8000;
 
 /** Lista vacía estable para cuando el cielo es demasiado brillante. */
 const SIN_CUERPOS: CuerpoCielo[] = [];
@@ -134,25 +125,27 @@ export default function VistaCielo({ observador = FERROL }: VistaCieloProps) {
     [cfg, engine, enTotalidad, c2Ms, c3Ms, obtenerCuerpos],
   );
 
-  // Cámara lenta en la Totalidad y en su antesala/salida (anillo de
-  // diamante y perlas de Baily viven a segundos de C2/C3).
-  const velocidad = useCallback(
-    (t: number): number => {
-      const cercaDeContactos =
-        c2Ms !== null &&
-        c3Ms !== null &&
-        t >= c2Ms - MARGEN_LENTO_MS &&
-        t <= c3Ms + MARGEN_LENTO_MS;
-      return enTotalidad(t) || cercaDeContactos
-        ? VELOCIDAD_TOTALIDAD
-        : VELOCIDAD_NORMAL;
-    },
-    [enTotalidad, c2Ms, c3Ms],
+  // Contactos locales en ms: alimentan la curva del modo resumen y los
+  // botones de salto de los controles compartidos.
+  const contactos = useMemo(
+    (): ContactosMs => ({
+      c1: circ.c1.instante.getTime(),
+      c2: c2Ms,
+      maximo: circ.maximo.instante.getTime(),
+      c3: c3Ms,
+      c4: circ.c4.instante.getTime(),
+    }),
+    [circ, c2Ms, c3Ms],
   );
 
   // Reloj de la Línea de tiempo: rAF + ref, pinta el canvas cada frame.
-  const { tUi, reproduciendo, alternarReproduccion, fijarTiempo } =
-    useLineaDeTiempo({ tMin: T_MIN, tMax: T_MAX, velocidad, onFrame: dibujar });
+  const linea = useLineaDeTiempo({
+    tMin: T_MIN,
+    tMax: T_MAX,
+    contactos,
+    onFrame: dibujar,
+  });
+  const { tUi } = linea;
 
   const oscuracionUi = useMemo(
     () => engine.obscurationAt(new Date(tUi)),
@@ -258,79 +251,14 @@ export default function VistaCielo({ observador = FERROL }: VistaCieloProps) {
         </p>
       )}
 
-      {/* Línea de tiempo con marcas de Contactos */}
-      <div style={{ position: "relative", marginTop: 28 }}>
-        {marcas.map((m) => {
-          const pct = ((m.t - T_MIN) / (T_MAX - T_MIN)) * 100;
-          return (
-            <div
-              key={m.etiqueta}
-              style={{
-                position: "absolute",
-                left: `${pct}%`,
-                top: -20,
-                transform: "translateX(-50%)",
-                fontSize: "0.72rem",
-                opacity: 0.85,
-                textAlign: "center",
-                pointerEvents: "none",
-              }}
-              title={`${m.etiqueta} — ${formatoCEST(m.t)} CEST`}
-            >
-              {m.etiqueta}
-              <div
-                style={{
-                  width: 1,
-                  height: 8,
-                  background: "currentColor",
-                  margin: "1px auto 0",
-                }}
-              />
-            </div>
-          );
-        })}
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <button
-            type="button"
-            onClick={alternarReproduccion}
-            aria-label={reproduciendo ? "Pausar" : "Reproducir"}
-            style={{
-              fontSize: "1.1rem",
-              width: 44,
-              height: 44,
-              borderRadius: "50%",
-              border: "1px solid rgba(255,255,255,0.35)",
-              background: "transparent",
-              color: "inherit",
-              cursor: "pointer",
-            }}
-          >
-            {reproduciendo ? "⏸" : "▶"}
-          </button>
-          <input
-            type="range"
-            min={T_MIN}
-            max={T_MAX}
-            step={1000}
-            value={tUi}
-            onChange={(e) => fijarTiempo(Number(e.target.value))}
-            aria-label="Línea de tiempo del eclipse"
-            style={{ flex: 1, accentColor: "#ffd98a" }}
-          />
-        </div>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            fontSize: "0.75rem",
-            opacity: 0.5,
-            marginLeft: 56,
-          }}
-        >
-          <span>{formatoCEST(T_MIN, false)}</span>
-          <span>{formatoCEST(T_MAX, false)}</span>
-        </div>
-      </div>
+      {/* Línea de tiempo con marcas de Contactos y controles compartidos */}
+      <ControlesTiempo
+        tMin={T_MIN}
+        tMax={T_MAX}
+        linea={linea}
+        contactos={contactos}
+        marcas={marcas}
+      />
     </section>
   );
 }
