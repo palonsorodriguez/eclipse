@@ -119,11 +119,28 @@ export default function Home() {
         </p>
         <BuscadorMunicipio onSelect={setObservador} />
         {observador ? (
-          <p style={{ margin: 0 }}>
+          <p style={{ margin: 0, textAlign: "center" }}>
             Observador: <strong>{observador.nombre}</strong> (
-            {observador.provincia}){" "}
-            <span style={{ opacity: 0.6 }}>
-              — {observador.lat.toFixed(4)}°, {observador.lon.toFixed(4)}°
+            {observador.provincia})
+            {/* Las coordenadas envuelven como pareja de bloques enteros:
+                en móvil caen limpias una bajo otra, nunca partidas. */}
+            <span
+              style={{
+                opacity: 0.6,
+                display: "inline-flex",
+                flexWrap: "wrap",
+                justifyContent: "center",
+                columnGap: "0.6rem",
+                marginLeft: "0.6rem",
+                verticalAlign: "baseline",
+              }}
+            >
+              <span style={{ whiteSpace: "nowrap" }}>
+                Lat {observador.lat.toFixed(4)}°
+              </span>
+              <span style={{ whiteSpace: "nowrap" }}>
+                Lon {observador.lon.toFixed(4)}°
+              </span>
             </span>
           </p>
         ) : (
