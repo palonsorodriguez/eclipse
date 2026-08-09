@@ -127,14 +127,20 @@ async function purgarExceso(cache, limite) {
 }
 
 /**
- * Navegación: stale-while-revalidate con fallback al shell raíz precacheado
- * para rutas nunca visitadas estando sin conexión.
+ * Navegación: red-primero con fallback a caché. Con SWR el usuario veía
+ * siempre la versión anterior a la última tras cada deploy (la copia
+ * cacheada se sirve al instante y el refresco llega tarde); red-primero
+ * garantiza lo último cuando hay conexión, y la caché queda para el modo
+ * offline (con el shell raíz precacheado como último recurso para rutas
+ * nunca visitadas).
  */
 async function responderNavegacion(peticion) {
-  const respuesta = await staleWhileRevalidate(peticion, CACHE_SHELL);
-  if (respuesta && respuesta.type !== "error") return respuesta;
-  const shell = await caches.match("/");
-  return shell ?? Response.error();
+  try {
+    return await networkFirst(peticion, CACHE_SHELL);
+  } catch {
+    const shell = await caches.match("/");
+    return shell ?? Response.error();
+  }
 }
 
 self.addEventListener("fetch", (evento) => {
