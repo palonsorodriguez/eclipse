@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, test } from "vitest";
 import {
   alfaContornoLunar,
   FUNDIDO_CONTORNO_MS,
   hintGafasVisible,
   hudActivoPorDefecto,
+  marcaPisadaPorAstro,
   marcasHorarias,
 } from "./cielo-hud";
 
@@ -71,5 +72,24 @@ describe("marcasHorarias", () => {
     expect(marcasHorarias(0, 7_200_000, 3_600_000)).toEqual([
       0, 3_600_000, 7_200_000,
     ]);
+  });
+});
+
+describe("marcaPisadaPorAstro (marcas de hora bajo los discos)", () => {
+  const escena = {
+    sol: { x: 400, y: 200, radio: 80 },
+    luna: { x: 430, y: 205, radio: 80 },
+  };
+
+  test("una marca dentro del disco lunar queda pisada", () => {
+    expect(marcaPisadaPorAstro(440, 210, escena)).toBe(true);
+  });
+
+  test("una marca dentro del margen alrededor del sol queda pisada", () => {
+    expect(marcaPisadaPorAstro(400 + 80 + 10, 200, escena)).toBe(true);
+  });
+
+  test("una marca lejana no se oculta", () => {
+    expect(marcaPisadaPorAstro(700, 60, escena)).toBe(false);
   });
 });

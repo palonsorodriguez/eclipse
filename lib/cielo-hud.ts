@@ -172,6 +172,23 @@ function solEn(
 }
 
 /**
+ * ¿Queda el punto (x, y) pisado por el disco del Sol o de la Luna en la
+ * escena actual? Las marcas de hora de las trayectorias se ocultan cuando
+ * un astro pasa por encima: un puntito asomando "dentro de la Luna" se lee
+ * como artefacto, no como HUD (feedback de QA real).
+ */
+export function marcaPisadaPorAstro(
+  x: number,
+  y: number,
+  escena: { sol: { x: number; y: number; radio: number }; luna: { x: number; y: number; radio: number } },
+  margenPx = 16,
+): boolean {
+  const pisa = (a: { x: number; y: number; radio: number }): boolean =>
+    Math.hypot(x - a.x, y - a.y) < a.radio + margenPx;
+  return pisa(escena.sol) || pisa(escena.luna);
+}
+
+/**
  * Pinta el overlay del modo simulador sobre un canvas 2D transparente ya
  * dimensionado a la misma caja que el canvas WebGL. Idempotente: limpia y
  * repinta entero (pensado para llamarse una vez por frame).
@@ -203,7 +220,9 @@ export function dibujarHud(
   );
   ctx.setLineDash([]);
 
-  // Marcas de hora sobre la trayectoria solar.
+  // Marcas de hora sobre la trayectoria solar (ocultas mientras un astro
+  // pasa por encima — ver marcaPisadaPorAstro).
+  const escenaActual = escenaSolLuna(f.posiciones, cfg);
   ctx.font = "11px system-ui, sans-serif";
   ctx.textAlign = "center";
   ctx.textBaseline = "bottom";
@@ -211,6 +230,7 @@ export function dibujarHud(
     const pos = solEn(f.trayectoria, marca.tMs);
     if (!pos || pos.altitud < -3) continue;
     const { x, y } = proyectarAltAz(pos.altitud, pos.acimut, cfg);
+    if (marcaPisadaPorAstro(x, y, escenaActual)) continue;
     ctx.beginPath();
     ctx.moveTo(x, y - 4);
     ctx.lineTo(x, y + 4);
