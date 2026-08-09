@@ -219,12 +219,12 @@ const CSS_BARRA = `
   font-variant-numeric: tabular-nums;
 }
 .bt-marca:hover { text-decoration: underline; }
-.bt-vel { min-width: 74px; }
+.bt-vel { min-width: 74px; padding: 6px 8px; font-size: 0.8rem; }
 @media (max-width: 480px) {
   .bt-fila { gap: 6px; padding: 0 10px; }
   .bt-seg, .bt-pct, .bt-prefijo { display: none; }
   .bt-hora-grande { font-size: 1.05rem; }
-  .bt-vel { min-width: 56px; }
+  .bt-vel { min-width: 52px; padding: 6px 4px; font-size: 0.72rem; }
 }
 `;
 
@@ -488,12 +488,10 @@ export default function BarraTiempo({ observador }: BarraTiempoProps) {
           }
           style={{
             flex: "none",
-            padding: "6px 8px",
             borderRadius: 6,
             border: "1px solid rgba(255, 255, 255, 0.3)",
             background: "transparent",
             color: COLOR_ACENTO,
-            fontSize: "0.8rem",
             cursor: "pointer",
             fontVariantNumeric: "tabular-nums",
           }}

@@ -10,12 +10,12 @@ export const metadata: Metadata = {
 };
 
 const estiloSeccion: CSSProperties = {
-  marginTop: "3.25rem",
+  marginTop: "var(--sp-seccion-info)",
 };
 
 const estiloTitulo: CSSProperties = {
   fontFamily: "var(--fuente-titulos), system-ui, sans-serif",
-  fontSize: "1.5rem",
+  fontSize: "var(--fs-h2)",
   fontWeight: 600,
   color: "#ffd97a",
   letterSpacing: "0.01em",
@@ -26,10 +26,10 @@ const estiloTitulo: CSSProperties = {
 
 const estiloSubtitulo: CSSProperties = {
   fontFamily: "var(--fuente-titulos), system-ui, sans-serif",
-  fontSize: "1.1rem",
+  fontSize: "var(--fs-subtitulo)",
   fontWeight: 600,
   color: "#f3edda",
-  marginTop: "2rem",
+  marginTop: "calc(var(--sp-seccion-info) * 0.6)",
   marginBottom: "0.5rem",
 };
 
@@ -38,9 +38,9 @@ const estiloAviso: CSSProperties = {
   borderLeft: "4px solid #ffb05c",
   background: "rgba(255, 176, 92, 0.12)",
   borderRadius: "0.5rem",
-  padding: "1rem 1.25rem",
+  padding: "1rem var(--sp-tarjeta)",
   color: "#f7edd8",
-  fontSize: "1.02rem",
+  fontSize: "var(--fs-cuerpo)",
 };
 
 // Las negritas del texto van en ámbar suave en vez de blanco puro: destacan
@@ -63,9 +63,10 @@ export default function Info() {
       style={{
         maxWidth: "40rem",
         margin: "0 auto",
-        padding: "3rem 1.5rem 5rem",
-        lineHeight: 1.7,
-        fontSize: "1.04rem",
+        padding:
+          "calc(var(--sp-pagina) * 1.5) calc(var(--sp-pagina) * 0.75) calc(var(--sp-pagina) * 2.5)",
+        lineHeight: "var(--lh-cuerpo)",
+        fontSize: "var(--fs-cuerpo)",
       }}
     >
       <style>{`
@@ -80,15 +81,19 @@ export default function Info() {
         .pagina-info li { margin-bottom: 0.6rem; }
         .pagina-info li::marker { color: #ffd97a; }
         .pagina-info p { margin: 0.85rem 0; }
+        @media (max-width: 480px) {
+          .pagina-info p { margin: 0.6rem 0; }
+          .pagina-info li { margin-bottom: 0.45rem; }
+        }
       `}</style>
-      <Link href="/" style={{ color: "#ffd97a", fontSize: "0.95rem" }}>
+      <Link href="/" style={{ color: "#ffd97a", fontSize: "var(--fs-peque)" }}>
         ← Volver al simulador
       </Link>
 
       <h1
         style={{
           fontFamily: "var(--fuente-titulos), system-ui, sans-serif",
-          fontSize: "2.1rem",
+          fontSize: "var(--fs-h1)",
           fontWeight: 700,
           color: "#f6f3ff",
           marginTop: "1.5rem",
@@ -241,7 +246,7 @@ export default function Info() {
             (dominio público).
           </li>
         </ul>
-        <p style={{ opacity: 0.75, fontSize: "0.95rem" }}>
+        <p style={{ opacity: 0.75, fontSize: "var(--fs-peque)" }}>
           Proyecto divulgativo sin ánimo de lucro. Los cálculos y la previsión
           meteorológica se ofrecen sin garantía; para cualquier decisión sobre
           observación segura manda siempre la advertencia de arriba.

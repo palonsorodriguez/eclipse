@@ -665,7 +665,13 @@ export default function VistaCielo({ observador = FERROL }: VistaCieloProps) {
       aria-label="Vista Cielo"
       style={{ width: "100%", maxWidth: ANCHO_CANVAS, margin: "0 auto" }}
     >
-      <h2 style={{ textAlign: "left", fontSize: "1.3rem", marginBottom: 8 }}>
+      <h2
+        style={{
+          textAlign: "left",
+          fontSize: "var(--fs-titulo)",
+          margin: "var(--sp-parrafo) 0 8px",
+        }}
+      >
         Vista Cielo
       </h2>
       <div
@@ -755,7 +761,7 @@ export default function VistaCielo({ observador = FERROL }: VistaCieloProps) {
             padding: "0.25rem 0.7rem",
             borderRadius: 999,
             background: "rgba(11, 13, 23, 0.65)",
-            fontSize: "0.9rem",
+            fontSize: "var(--fs-peque)",
             fontWeight: fase === "TOTALIDAD" ? 700 : 400,
             color: fase === "TOTALIDAD" ? "#ffd98a" : "#dcd9e8",
             pointerEvents: "none",
@@ -885,7 +891,14 @@ export default function VistaCielo({ observador = FERROL }: VistaCieloProps) {
       </div>
 
       {circ.tipo === "parcial" && (
-        <p style={{ margin: "6px 0 0", opacity: 0.75, textAlign: "left" }}>
+        <p
+          style={{
+            margin: "6px 0 0",
+            opacity: 0.75,
+            textAlign: "left",
+            fontSize: "var(--fs-peque)",
+          }}
+        >
           máximo {formatoPorcentaje(circ.oscurecimientoMaximo)} % — sin
           totalidad aquí
         </p>

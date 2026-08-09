@@ -95,24 +95,31 @@ export default function Home() {
           alignItems: "center",
           justifyContent: "center",
           minHeight: "100vh",
-          padding: "2rem",
+          padding: "var(--sp-pagina)",
           textAlign: "center",
-          gap: "1rem",
+          gap: "var(--sp-bloque)",
         }}
       >
         <div
           aria-hidden
           style={{
-            width: 120,
-            height: 120,
+            width: "var(--disco-hero)",
+            height: "var(--disco-hero)",
             borderRadius: "50%",
             background: "#0b0d17",
             boxShadow: "0 0 40px 12px rgba(255, 244, 214, 0.55)",
-            marginBottom: "1rem",
+            marginBottom: "var(--sp-bloque)",
           }}
         />
-        <h1 style={{ fontSize: "2rem", margin: 0 }}>Eclipse</h1>
-        <p style={{ fontSize: "1.1rem", maxWidth: "36rem", opacity: 0.85 }}>
+        <h1 style={{ fontSize: "var(--fs-h1)", margin: 0 }}>Eclipse</h1>
+        <p
+          style={{
+            fontSize: "var(--fs-subtitulo)",
+            maxWidth: "36rem",
+            opacity: 0.85,
+            margin: "var(--sp-parrafo) 0",
+          }}
+        >
           Simulador del eclipse solar total del{" "}
           <strong>12 de agosto de 2026</strong> desde cualquier municipio de
           España.
@@ -149,7 +156,7 @@ export default function Home() {
           </p>
         )}
         {observador && <PanelCircunstancias observador={observador} />}
-        <p style={{ opacity: 0.6 }}>
+        <p style={{ opacity: 0.6, margin: "var(--sp-parrafo) 0" }}>
           Totalidad sobre España: {VENTANA_TOTALIDAD.inicio}–
           {VENTANA_TOTALIDAD.fin} (hora peninsular). En construcción.
         </p>
@@ -165,7 +172,7 @@ export default function Home() {
           onSelect={elegirEnMapa}
         />
         <VistaAstros />
-        <Link href="/info" style={{ color: "#ffe9a8", fontSize: "1.05rem" }}>
+        <Link href="/info" style={{ color: "#ffe9a8", fontSize: "var(--fs-cuerpo)" }}>
           Cómo verlo sin dañarte la vista, y de dónde salen los datos
         </Link>
       </main>

@@ -738,7 +738,9 @@ export default function VistaMapa({ observador, onSelect }: VistaMapaProps) {
       aria-label="Vista Mapa"
       style={{ width: "100%", maxWidth: 960, margin: "0 auto", textAlign: "left" }}
     >
-      <h2 style={{ fontSize: "1.3rem", marginBottom: 8 }}>Vista Mapa</h2>
+      <h2 style={{ fontSize: "var(--fs-titulo)", margin: "var(--sp-parrafo) 0 8px" }}>
+        Vista Mapa
+      </h2>
       <div style={{ position: "relative" }}>
         <div
           ref={contenedorRef}
@@ -762,7 +764,7 @@ export default function VistaMapa({ observador, onSelect }: VistaMapaProps) {
             borderRadius: 999,
             background: "rgba(20, 24, 48, 0.85)",
             color: "#ffd97a",
-            fontSize: "0.8rem",
+            fontSize: "var(--fs-mini)",
             fontVariantNumeric: "tabular-nums",
             whiteSpace: "nowrap",
             pointerEvents: "none",
@@ -802,7 +804,9 @@ export default function VistaMapa({ observador, onSelect }: VistaMapaProps) {
           style={{
             display: "flex",
             alignItems: "center",
+            flexWrap: "wrap",
             gap: 10,
+            fontSize: "var(--fs-dato)",
             fontVariantNumeric: "tabular-nums",
           }}
         >
@@ -819,7 +823,10 @@ export default function VistaMapa({ observador, onSelect }: VistaMapaProps) {
             disabled={!rejilla}
             onChange={(e) => setNivelPct(Number(e.target.value))}
             aria-label="Nivel de Oscurecimiento de la isolínea en vivo"
-            style={{ width: 180, accentColor: COLOR_FRANJA_VIVA }}
+            style={{
+              width: "clamp(120px, 40vw, 180px)",
+              accentColor: COLOR_FRANJA_VIVA,
+            }}
           />
         </label>
 
@@ -834,6 +841,7 @@ export default function VistaMapa({ observador, onSelect }: VistaMapaProps) {
             border: `1px solid ${nubesActivas ? "#6b7280" : "#c5c9cf"}`,
             background: nubesActivas ? "#eef1f5" : "transparent",
             color: nubesActivas ? "#1f2937" : "inherit",
+            fontSize: "var(--fs-dato)",
             fontWeight: 600,
             cursor: "pointer",
           }}
@@ -841,12 +849,12 @@ export default function VistaMapa({ observador, onSelect }: VistaMapaProps) {
           ☁️ Nubes
         </button>
         {nubesActivas && cargandoNubes && (
-          <span style={{ opacity: 0.65, fontSize: "0.85rem" }}>
+          <span style={{ opacity: 0.65, fontSize: "var(--fs-nota)" }}>
             Cargando previsión…
           </span>
         )}
         {nubesActivas && errorNubes && !cargandoNubes && (
-          <span role="alert" style={{ color: "#b45309", fontSize: "0.85rem" }}>
+          <span role="alert" style={{ color: "#b45309", fontSize: "var(--fs-nota)" }}>
             Previsión no disponible ahora mismo.
           </span>
         )}
@@ -856,8 +864,9 @@ export default function VistaMapa({ observador, onSelect }: VistaMapaProps) {
             style={{
               display: "inline-flex",
               alignItems: "center",
+              flexWrap: "wrap",
               gap: 10,
-              fontSize: "0.8rem",
+              fontSize: "var(--fs-mini)",
               opacity: 0.85,
             }}
           >
@@ -888,19 +897,25 @@ export default function VistaMapa({ observador, onSelect }: VistaMapaProps) {
         )}
       </div>
       {!rejilla && !errorDatos && (
-        <p style={{ margin: "4px 0 0", opacity: 0.65, fontSize: "0.85rem" }}>
+        <p style={{ margin: "4px 0 0", opacity: 0.65, fontSize: "var(--fs-nota)" }}>
           Calculando la isolínea en vivo con el motor astronómico…{" "}
           {Math.round(progreso * 100)} %
         </p>
       )}
 
-      <p style={{ margin: "10px 0 0", opacity: 0.7, fontSize: "0.85rem" }}>
+      <p
+        style={{
+          margin: "var(--sp-tarjeta-v) 0 0",
+          opacity: 0.7,
+          fontSize: "var(--fs-nota)",
+        }}
+      >
         Haz clic en el mapa para situar al Observador en el municipio más
         cercano. La sombra (umbra) entra por el Atlántico y cruza la
         península entre las 20:20 y las 20:34 aproximadamente; las marcas
         sobre su trayectoria indican la hora (CEST) de paso del centro.
       </p>
-      <p style={{ margin: "4px 0 0", opacity: 0.5, fontSize: "0.75rem" }}>
+      <p style={{ margin: "4px 0 0", opacity: 0.5, fontSize: "var(--fs-mini)" }}>
         Mapa: © OpenStreetMap contributors © CARTO.
       </p>
     </section>

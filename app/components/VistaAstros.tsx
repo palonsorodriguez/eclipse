@@ -298,7 +298,13 @@ export default function VistaAstros() {
       aria-label="Vista Astros"
       style={{ width: "100%", maxWidth: 960, margin: "0 auto", textAlign: "left" }}
     >
-      <h2 style={{ textAlign: "left", fontSize: "1.3rem", marginBottom: 8 }}>
+      <h2
+        style={{
+          textAlign: "left",
+          fontSize: "var(--fs-titulo)",
+          margin: "var(--sp-parrafo) 0 8px",
+        }}
+      >
         Vista Astros
       </h2>
       <details
@@ -308,14 +314,14 @@ export default function VistaAstros() {
           background: "#0e1120",
           border: "1px solid #232742",
           borderRadius: 8,
-          padding: "0.4rem 1rem 0.9rem",
+          padding: "0.4rem var(--sp-tarjeta) 0.9rem",
         }}
       >
         <summary
           style={{
             cursor: "pointer",
             fontFamily: "var(--fuente-titulos), system-ui, sans-serif",
-            fontSize: "1.05rem",
+            fontSize: "var(--fs-cuerpo)",
             padding: "0.5rem 0",
             color: "#ffe9a8",
           }}
@@ -323,7 +329,13 @@ export default function VistaAstros() {
           ¿Por qué pasa esto? — Sol, Luna y Tierra en directo
         </summary>
 
-        <p style={{ margin: "0.4rem 0 0.6rem", opacity: 0.85 }}>
+        <p
+          style={{
+            margin: "0.4rem 0 0.6rem",
+            opacity: 0.85,
+            fontSize: "var(--fs-cuerpo)",
+          }}
+        >
           La Luna pasa exactamente entre el Sol y la Tierra y proyecta dos
           sombras: la <strong>umbra</strong> (el cono interior, donde el Sol
           queda tapado del todo) y la <strong>penumbra</strong> (donde solo se
@@ -338,7 +350,7 @@ export default function VistaAstros() {
           style={{
             margin: "0 0 0.6rem",
             color: "#ffd97a",
-            fontSize: "1.1rem",
+            fontSize: "var(--fs-subtitulo)",
             fontWeight: 600,
             lineHeight: 1.35,
           }}
@@ -347,6 +359,7 @@ export default function VistaAstros() {
         </p>
 
         <svg
+          className="va-svg"
           viewBox="0 0 960 440"
           role="img"
           aria-label="Diagrama de la geometría Sol, Luna y Tierra con la órbita de la Luna, los rayos del Sol y los conos de umbra y penumbra"
@@ -387,6 +400,15 @@ export default function VistaAstros() {
               @media (prefers-reduced-motion: reduce) {
                 .va-rayos, .va-rayos line, .va-pulso-contacto { animation: none; }
               }
+              /* Versión móvil de las etiquetas (issue #60): el viewBox de
+                 960 px se escala a ~343 px a 375 px de ancho y los 11–15 px
+                 de fuente quedarían en ~4–5 px reales. En pantallas
+                 estrechas las etiquetas suben de cuerpo (la CSS pisa el
+                 atributo font-size, solo aquí). */
+              @media (max-width: 600px) {
+                .va-svg text { font-size: 24px; }
+                .va-svg text.va-txt-s { font-size: 18px; }
+              }
             `}</style>
           </defs>
 
@@ -408,6 +430,7 @@ export default function VistaAstros() {
             strokeDasharray="7 7"
           />
           <text
+            className="va-txt-s"
             x={638}
             y={168}
             fill="#9aa6dd"
@@ -432,6 +455,7 @@ export default function VistaAstros() {
               <g key={etiqueta}>
                 <circle cx={punto.x} cy={punto.y} r={3} fill="#b9c1e8" />
                 <text
+                  className="va-txt-s"
                   x={punto.x}
                   y={punto.y + dy}
                   textAnchor="middle"
@@ -649,6 +673,7 @@ export default function VistaAstros() {
             {/* Etiquetas dentro de sus conos, viajan con ellos. */}
             <text
               ref={etiquetaUmbraRef}
+              className="va-txt-s"
               x={etiquetaUmbraInicial.x}
               y={etiquetaUmbraInicial.y}
               textAnchor="middle"
@@ -660,6 +685,7 @@ export default function VistaAstros() {
             </text>
             <text
               ref={etiquetaPenumbraRef}
+              className="va-txt-s"
               x={etiquetaPenumbraInicial.x}
               y={etiquetaPenumbraInicial.y}
               textAnchor="middle"
@@ -669,6 +695,7 @@ export default function VistaAstros() {
               penumbra
             </text>
             <text
+              className="va-txt-s"
               x={952}
               y={CONTACTO_PENINSULA.y - 20}
               textAnchor="end"
@@ -680,7 +707,7 @@ export default function VistaAstros() {
           </g>
         </svg>
 
-        <p style={{ margin: "0.5rem 0 0", opacity: 0.6, fontSize: "0.8rem" }}>
+        <p style={{ margin: "0.5rem 0 0", opacity: 0.6, fontSize: "var(--fs-mini)" }}>
           Distancias y tamaños no están a escala (a escala real no se vería
           nada), pero la posición de la Luna, el desplazamiento del eje de la
           sombra y el punto donde el cono toca la Tierra salen del cálculo
