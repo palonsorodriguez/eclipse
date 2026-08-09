@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import { Inter, Space_Grotesk } from "next/font/google";
+import Script from "next/script";
 import RegistroSW from "./components/RegistroSW";
 
 const inter = Inter({ subsets: ["latin"], variable: "--fuente-texto" });
@@ -61,6 +62,21 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       >
         <RegistroSW />
         {children}
+        <footer
+          style={{
+            textAlign: "center",
+            fontSize: "0.85rem",
+            opacity: 0.55,
+            // La barra de tiempo sticky mide 61 px: el pie respira sobre ella.
+            padding: "2.5rem 1rem calc(2rem + 61px)",
+          }}
+        >
+          Hecho en Ferrol, bajo la franja de totalidad — Pablo Alonso · 2026
+        </footer>
+        {/* Vercel Web Analytics sin paquete npm (su peer opcional de Svelte
+            choca con el vite de vitest): el script oficial responde en
+            /_vercel/insights/ cuando Analytics está activado en el proyecto. */}
+        <Script src="/_vercel/insights/script.js" strategy="lazyOnload" />
       </body>
     </html>
   );
