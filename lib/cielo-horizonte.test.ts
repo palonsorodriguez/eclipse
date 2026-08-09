@@ -14,12 +14,24 @@ import {
 } from "./cielo-horizonte";
 import {
   acimutsSector,
+  claveDePerfil,
   fetchPerfilHorizonte,
   MAX_COORDS_POR_PETICION,
   RADIOS_KM,
   type ObstruccionAcimut,
   type PerfilHorizonte,
 } from "./horizonte";
+
+/** localStorage falso (Map en memoria) para la caché persistente. */
+function almacenFalso() {
+  const datos = new Map<string, string>();
+  return {
+    getItem: (clave: string) => datos.get(clave) ?? null,
+    setItem: (clave: string, valor: string) => void datos.set(clave, valor),
+    removeItem: (clave: string) => void datos.delete(clave),
+    clear: () => datos.clear(),
+  };
+}
 
 /** Obstrucción sintética (acimut, ángulo, fracción de mar). */
 function obstruccion(
@@ -36,14 +48,14 @@ function sector(acimuts: ObstruccionAcimut[]): PerfilHorizonte {
 }
 
 describe("acimutsResto", () => {
-  test("cubre el complemento del sector con paso 8° sin pisar el sector", () => {
+  test("cubre el complemento del sector con paso 12° sin pisar el sector", () => {
     const delSector = new Set(acimutsSector(285, 295));
     const resto = acimutsResto(285, 295);
 
-    // Sector 265..315 → resto de 323 a 619 (=259) con paso 8: 38 acimuts.
-    expect(resto[0]).toBe(323);
-    expect(resto[resto.length - 1]).toBe(259);
-    expect(resto).toHaveLength(38);
+    // Sector 265..315 → resto de 327 a 615 (=255) con paso 12: 25 acimuts.
+    expect(resto[0]).toBe(327);
+    expect(resto[resto.length - 1]).toBe(255);
+    expect(resto).toHaveLength(25);
     for (const a of resto) {
       expect(delSector.has(a)).toBe(false);
       expect(a).toBeGreaterThanOrEqual(0);
@@ -206,12 +218,13 @@ describe("fetchPerfilCielo", () => {
     vi.unstubAllGlobals();
   });
 
-  test("respeta el presupuesto documentado: cabe en la ventana del límite", async () => {
+  test("respeta el presupuesto del issue #61: ≤ 4 peticiones por municipio nuevo", async () => {
     const mock = mockElevacion(() => 100);
     await fetchPerfilCielo({ lat: 41.1, lon: -1.1 }, 285, 295);
 
-    // Sector: 1 + 26 × 16 = 417. Resto: 38 × 4 = 152. Total 569 → 7 lotes,
-    // por debajo de las ~600 coordenadas/min medidas en #43.
+    // Sector: 1 + 26 × 9 = 235 → 3 lotes. Resto: 25 × 4 = 100 → 1 lote.
+    // Total 335 coordenadas en 4 peticiones — media ventana del límite
+    // por minuto (~600 coordenadas medidas en #43).
     let total = 0;
     for (const [url] of mock.mock.calls) {
       const n = new URL(url as string).searchParams
@@ -221,24 +234,33 @@ describe("fetchPerfilCielo", () => {
       total += n;
     }
     expect(total).toBe(
-      1 + 26 * RADIOS_KM.length + 38 * RADIOS_KM_RESTO.length,
+      1 + 26 * RADIOS_KM.length + 25 * RADIOS_KM_RESTO.length,
     );
     expect(total).toBeLessThan(600);
-    expect(mock).toHaveBeenCalledTimes(7);
+    expect(mock).toHaveBeenCalledTimes(4);
+  });
+
+  test("el presupuesto aguanta con un sector real ancho (30 acimuts, caso Ferrol)", async () => {
+    const mock = mockElevacion(() => 100);
+    // Acimuts del sol en C1/C4 medidos con el engine para Ferrol: el
+    // sector más ancho de los municipios muestreados por toda España.
+    await fetchPerfilCielo({ lat: 43.3, lon: -8.4 }, 269.6, 288.1);
+
+    expect(mock.mock.calls.length).toBeLessThanOrEqual(4);
   });
 
   test("comparte la caché del sector con el panel: no repite sus peticiones", async () => {
     const mock = mockElevacion(() => 50);
     const observador = { lat: 43.4832, lon: -8.2369 };
 
-    // El panel pide primero el sector (5 peticiones)…
+    // El panel pide primero el sector (3 peticiones)…
     await fetchPerfilHorizonte(observador, 285, 295);
     const trasPanel = mock.mock.calls.length;
-    expect(trasPanel).toBe(5);
+    expect(trasPanel).toBe(3);
 
-    // …y la Vista Cielo solo añade el resto del círculo (2 más).
+    // …y la Vista Cielo solo añade el resto del círculo (1 más).
     await fetchPerfilCielo(observador, 285, 295);
-    expect(mock.mock.calls.length - trasPanel).toBe(2);
+    expect(mock.mock.calls.length - trasPanel).toBe(1);
   });
 
   test("cachea por Observador: la segunda llamada no vuelve a pedir", async () => {
@@ -284,5 +306,65 @@ describe("fetchPerfilCielo", () => {
     // Hacia el E (resto del círculo): tierra con relieve.
     expect(alturaPerfil(perfil.mar, 90)).toBeLessThan(0.5);
     expect(alturaPerfil(perfil.alturas, 90)).toBeGreaterThan(1);
+  });
+
+  // --- Caché persistente (issue #61) --------------------------------------
+
+  test("guarda el perfil de 360° medido en localStorage", async () => {
+    const almacen = almacenFalso();
+    vi.stubGlobal("localStorage", almacen);
+    mockElevacion(() => 100);
+    const observador = { lat: 37.21, lon: -3.63 };
+
+    await fetchPerfilCielo(observador, 285, 295);
+
+    const guardado = almacen.getItem(
+      `eclipse.cielo.v1|${claveDePerfil(observador, 285, 295)}`,
+    );
+    expect(guardado).not.toBeNull();
+    const persistido = JSON.parse(guardado!) as {
+      alturas: number[];
+      mar: number[];
+    };
+    expect(persistido.alturas).toHaveLength(360);
+    expect(persistido.mar).toHaveLength(360);
+  });
+
+  test("un municipio ya medido en otra visita no toca la red", async () => {
+    // Simula la visita de ayer: perfil en localStorage, memoria vacía.
+    const observador = { lat: 39.89, lon: 4.26 };
+    const almacen = almacenFalso();
+    almacen.setItem(
+      `eclipse.cielo.v1|${claveDePerfil(observador, 285, 295)}`,
+      JSON.stringify({
+        alturas: Array.from({ length: 360 }, () => 2.5),
+        mar: Array.from({ length: 360 }, () => 0),
+      }),
+    );
+    vi.stubGlobal("localStorage", almacen);
+    const mock = vi.fn();
+    vi.stubGlobal("fetch", mock);
+
+    const perfil = await fetchPerfilCielo(observador, 285, 295);
+
+    expect(mock).not.toHaveBeenCalled();
+    expect(perfil.alturas).toBeInstanceOf(Float32Array);
+    expect(alturaPerfil(perfil.alturas, 123)).toBeCloseTo(2.5, 5);
+  });
+
+  test("una clave persistida con forma inválida se ignora y se vuelve a medir", async () => {
+    const observador = { lat: 40.97, lon: -5.66 };
+    const almacen = almacenFalso();
+    almacen.setItem(
+      `eclipse.cielo.v1|${claveDePerfil(observador, 285, 295)}`,
+      JSON.stringify({ alturas: [1, 2, 3], mar: [] }), // longitud incorrecta
+    );
+    vi.stubGlobal("localStorage", almacen);
+    const mock = mockElevacion(() => 100);
+
+    const perfil = await fetchPerfilCielo(observador, 285, 295);
+
+    expect(mock).toHaveBeenCalled();
+    expect(perfil.alturas).toHaveLength(360);
   });
 });

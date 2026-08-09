@@ -3,11 +3,14 @@ import {
   acimutsSector,
   agrupar,
   anguloObstruccion,
+  claveDePerfil,
+  esErrorSaturacion,
   evaluarHorizonte,
   fetchElevaciones,
   fetchPerfilHorizonte,
   puntoDestino,
   urlElevacion,
+  ErrorSaturacionElevacion,
   ESPERA_REINTENTO_MS,
   MAX_COORDS_POR_PETICION,
   MAX_REINTENTOS_429,
@@ -15,6 +18,24 @@ import {
   type MuestraRadial,
   type PerfilHorizonte,
 } from "./horizonte";
+
+/**
+ * localStorage falso para los tests de la caché persistente: un Map en
+ * memoria con la superficie que usa `lib/almacen-local.ts`.
+ */
+function almacenFalso() {
+  const datos = new Map<string, string>();
+  return {
+    getItem: (clave: string) => datos.get(clave) ?? null,
+    setItem: (clave: string, valor: string) => void datos.set(clave, valor),
+    removeItem: (clave: string) => void datos.delete(clave),
+    clear: () => datos.clear(),
+    get length() {
+      return datos.size;
+    },
+    key: (i: number) => [...datos.keys()][i] ?? null,
+  };
+}
 
 describe("anguloObstruccion", () => {
   test("un monte 500 m por encima a 5 km subtiende ~5,7°", () => {
@@ -220,6 +241,67 @@ describe("fetchElevaciones", () => {
       ]),
     ).rejects.toThrow();
   });
+
+  // Verificado en producción (issue #61): el límite HORARIO llega como
+  // HTTP 200 con error:true — ni éxito ni fallo mudo.
+  test("un 200 con error:true (límite horario) es saturación y NO se reintenta a los 30 s", async () => {
+    const mock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: true,
+          reason: "Hourly API request limit exceeded",
+        }),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", mock);
+
+    const error: unknown = await fetchElevaciones([{ lat: 40, lon: -3 }])
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(esErrorSaturacion(error)).toBe(true);
+    expect((error as Error).message).toContain("Hourly");
+    // Esperar 30 s no libera una ventana horaria: una única petición.
+    expect(mock).toHaveBeenCalledTimes(1);
+  });
+
+  test("un 200 con error:true por otro motivo es un fallo normal, no saturación", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({ error: true, reason: "Invalid coordinates" }),
+          { status: 200 },
+        ),
+      ),
+    );
+
+    const error: unknown = await fetchElevaciones([{ lat: 40, lon: -3 }])
+      .then(() => null)
+      .catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(Error);
+    expect(esErrorSaturacion(error)).toBe(false);
+    expect((error as Error).message).toContain("Invalid coordinates");
+  });
+
+  test("el 429 agotado también se identifica como saturación (la UI lo distingue)", async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("rate limit", { status: 429 })),
+    );
+
+    const promesa = fetchElevaciones([{ lat: 40, lon: -3 }]);
+    promesa.catch(() => {});
+    for (let i = 0; i < MAX_REINTENTOS_429; i++) {
+      await vi.advanceTimersByTimeAsync(ESPERA_REINTENTO_MS);
+    }
+
+    await expect(promesa).rejects.toThrow(ErrorSaturacionElevacion);
+    vi.useRealTimers();
+  });
 });
 
 describe("fetchPerfilHorizonte", () => {
@@ -264,8 +346,8 @@ describe("fetchPerfilHorizonte", () => {
     const mock = mockElevacion(() => 0);
     await fetchPerfilHorizonte({ lat: 39.6, lon: 2.9 }, 285, 295);
 
-    // 1 (observador) + 26 acimuts × 16 radios = 417 puntos → 5 peticiones.
-    expect(mock).toHaveBeenCalledTimes(5);
+    // 1 (observador) + 26 acimuts × 9 radios = 235 puntos → 3 peticiones.
+    expect(mock).toHaveBeenCalledTimes(3);
     let total = 0;
     for (const [url] of mock.mock.calls) {
       const lats = new URL(url as string).searchParams.get("latitude")!;
@@ -274,6 +356,17 @@ describe("fetchPerfilHorizonte", () => {
       total += n;
     }
     expect(total).toBe(1 + 26 * RADIOS_KM.length);
+  });
+
+  // Presupuesto del issue #61: el sector real del eclipse (C1→C4 medidos
+  // sobre municipios de toda España da 27–30 acimuts) cabe en 3 peticiones.
+  test("un sector real (30 acimuts, caso Ferrol) cabe en 3 peticiones", async () => {
+    const mock = mockElevacion(() => 0);
+    // Acimuts del sol en C1/C4 medidos con el engine para Ferrol.
+    await fetchPerfilHorizonte({ lat: 43.484, lon: -8.233 }, 269.6, 288.1);
+
+    expect(acimutsSector(269.6, 288.1)).toHaveLength(30);
+    expect(mock).toHaveBeenCalledTimes(3);
   });
 
   test("cachea por Observador: la segunda llamada no vuelve a pedir", async () => {
@@ -302,6 +395,86 @@ describe("fetchPerfilHorizonte", () => {
     mockElevacion(() => 50);
     const perfil = await fetchPerfilHorizonte(observador, 285, 295);
     expect(perfil.elevacionObservador).toBe(50);
+  });
+
+  // --- Caché persistente (issue #61): sin caducidad, el relieve no cambia.
+
+  test("guarda el perfil medido en localStorage, con clave por municipio", async () => {
+    const almacen = almacenFalso();
+    vi.stubGlobal("localStorage", almacen);
+    mockElevacion(() => 120);
+    const observador = { lat: 40.05, lon: -1.05 };
+
+    await fetchPerfilHorizonte(observador, 285, 295);
+
+    const guardado = almacen.getItem(
+      `eclipse.horizonte.v1|${claveDePerfil(observador, 285, 295)}`,
+    );
+    expect(guardado).not.toBeNull();
+    const perfil = JSON.parse(guardado!) as PerfilHorizonte;
+    expect(perfil.elevacionObservador).toBe(120);
+    expect(perfil.acimuts.length).toBeGreaterThan(0);
+  });
+
+  test("un municipio ya medido (visita anterior) responde del almacén sin tocar la red", async () => {
+    // Simula la visita de ayer: el perfil está en localStorage pero NO en
+    // la caché en memoria (proceso nuevo → clave nueva de Observador).
+    const observador = { lat: 38.51, lon: -0.94 };
+    const persistido: PerfilHorizonte = {
+      elevacionObservador: 77,
+      acimuts: [
+        { acimut: 280, angulo: 1.5, distanciaKm: 4.4, fraccionMar: 0 },
+        { acimut: 282, angulo: 1.1, distanciaKm: 7.4, fraccionMar: 0 },
+      ],
+    };
+    const almacen = almacenFalso();
+    almacen.setItem(
+      `eclipse.horizonte.v1|${claveDePerfil(observador, 285, 295)}`,
+      JSON.stringify(persistido),
+    );
+    vi.stubGlobal("localStorage", almacen);
+    const mock = vi.fn();
+    vi.stubGlobal("fetch", mock);
+
+    const perfil = await fetchPerfilHorizonte(observador, 285, 295);
+
+    expect(mock).not.toHaveBeenCalled();
+    expect(perfil).toEqual(persistido);
+  });
+
+  test("una clave persistida corrupta se ignora y se vuelve a medir", async () => {
+    const observador = { lat: 41.66, lon: -0.88 };
+    const almacen = almacenFalso();
+    almacen.setItem(
+      `eclipse.horizonte.v1|${claveDePerfil(observador, 285, 295)}`,
+      '{"basura":true}',
+    );
+    vi.stubGlobal("localStorage", almacen);
+    const mock = mockElevacion(() => 200);
+
+    const perfil = await fetchPerfilHorizonte(observador, 285, 295);
+
+    expect(mock).toHaveBeenCalled();
+    expect(perfil.elevacionObservador).toBe(200);
+  });
+
+  test("un fallo del almacén (cuota, modo privado) no rompe la medición", async () => {
+    vi.stubGlobal("localStorage", {
+      getItem: () => {
+        throw new Error("SecurityError");
+      },
+      setItem: () => {
+        throw new Error("QuotaExceededError");
+      },
+    });
+    mockElevacion(() => 15);
+
+    const perfil = await fetchPerfilHorizonte(
+      { lat: 37.18, lon: -3.6 },
+      285,
+      295,
+    );
+    expect(perfil.elevacionObservador).toBe(15);
   });
 });
 
