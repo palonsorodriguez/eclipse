@@ -472,12 +472,14 @@ export default function VistaMapa({ observador, onSelect }: VistaMapaProps) {
   // La descarga se refresca en cada activación, no en cada carga de la
   // página; `obtenerNubesFranja` cachea en memoria 30 min, así que activar
   // y desactivar el toggle no repite la petición dentro de esa ventana.
+  // La rejilla de puntos vive en el servidor (proxy /api/nubes-franja,
+  // issue #69): ya no hace falta la banda para pedir la capa.
   useEffect(() => {
-    if (!nubesActivas || !datos) return;
+    if (!nubesActivas) return;
     let cancelado = false;
     setCargandoNubes(true);
     setErrorNubes(false);
-    obtenerNubesFranja(datos.banda)
+    obtenerNubesFranja()
       .then((puntos) => {
         if (!cancelado) setNubes(puntos);
       })
@@ -490,7 +492,7 @@ export default function VistaMapa({ observador, onSelect }: VistaMapaProps) {
     return () => {
       cancelado = true;
     };
-  }, [nubesActivas, datos]);
+  }, [nubesActivas]);
 
   // Círculos coloreados por nubosidad media, bajo los límites de la banda
   // y la umbra para no tapar la geometría del eclipse.

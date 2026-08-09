@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import {
   clasificarVeredicto,
+  claveZona,
+  fetchHorasOpenMeteo,
   fetchPrevisionEclipse,
+  urlApiMeteo,
   type NubosidadHora,
 } from "./meteo";
 
@@ -60,7 +63,98 @@ describe("clasificarVeredicto", () => {
   });
 });
 
+describe("claveZona", () => {
+  test("redondea al nodo más cercano de la rejilla de 0,25°", () => {
+    expect(claveZona(40.4168, -3.7038)).toEqual({ lat: 40.5, lon: -3.75 });
+    expect(claveZona(43.4832, -8.2369)).toEqual({ lat: 43.5, lon: -8.25 });
+  });
+
+  test("dos municipios vecinos comparten clave de zona", () => {
+    // Ferrol y Narón (~3 km): misma zona → misma URL → una sola llamada
+    // upstream para ambos.
+    expect(claveZona(43.4832, -8.2369)).toEqual(claveZona(43.5027, -8.1926));
+  });
+
+  test("los nodos exactos de la rejilla no cambian", () => {
+    expect(claveZona(40.25, -3.5)).toEqual({ lat: 40.25, lon: -3.5 });
+    expect(claveZona(0, 0)).toEqual({ lat: 0, lon: 0 });
+  });
+
+  test("no produce -0 junto al ecuador ni al meridiano", () => {
+    const zona = claveZona(-0.1, -0.1);
+    expect(Object.is(zona.lat, -0)).toBe(false);
+    expect(Object.is(zona.lon, -0)).toBe(false);
+  });
+});
+
+describe("urlApiMeteo", () => {
+  test("la URL del proxy lleva la clave de zona, no el punto exacto", () => {
+    // Todos los usuarios de la zona de Madrid piden la MISMA URL: la
+    // caché del edge (y la del SW) sirve una única copia para todos.
+    expect(urlApiMeteo(40.4168, -3.7038)).toBe("/api/meteo?lat=40.50&lon=-3.75");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cliente: fetchPrevisionEclipse pide el proxy /api/meteo (fetch mockeado)
+// ---------------------------------------------------------------------------
+
 describe("fetchPrevisionEclipse", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  /** Cuerpo de una respuesta correcta del proxy /api/meteo. */
+  function respuestaProxy(horas: NubosidadHora[]) {
+    return {
+      zona: { lat: 40.5, lon: -3.75 },
+      generado: "2026-08-09T12:00:00.000Z",
+      horas,
+    };
+  }
+
+  test("pide el proxy con la clave de zona y clasifica el veredicto", async () => {
+    const horas = ventana({ total: 10, baja: 5, media: 5, alta: 0 });
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(respuestaProxy(horas)), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const prevision = await fetchPrevisionEclipse(40.4168, -3.7038);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]![0]).toBe("/api/meteo?lat=40.50&lon=-3.75");
+    expect(prevision.horas).toEqual(horas);
+    expect(prevision.veredicto.clave).toBe("despejado");
+  });
+
+  test("lanza error si el proxy responde con fallo HTTP", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response("error", { status: 502 })),
+    );
+    await expect(fetchPrevisionEclipse(40, -3)).rejects.toThrow("502");
+  });
+
+  test("lanza error si el proxy no trae horas", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({ generado: "2026-08-09T12:00:00.000Z", horas: [] }),
+          { status: 200 },
+        ),
+      ),
+    );
+    await expect(fetchPrevisionEclipse(40, -3)).rejects.toThrow();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Servidor: fetchHorasOpenMeteo parsea el formato upstream (fetch mockeado)
+// ---------------------------------------------------------------------------
+
+describe("fetchHorasOpenMeteo", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
   });
@@ -88,7 +182,7 @@ describe("fetchPrevisionEclipse", () => {
     };
   }
 
-  test("extrae la ventana 19:00–22:00 y clasifica el veredicto", async () => {
+  test("extrae la ventana 19:00–22:00 del formato Open-Meteo", async () => {
     const cuerpo = respuestaOpenMeteo({
       "19:00": { total: 10, baja: 5, media: 5, alta: 0 },
       "20:00": { total: 15, baja: 10, media: 5, alta: 0 },
@@ -102,22 +196,32 @@ describe("fetchPrevisionEclipse", () => {
       ),
     );
 
-    const prevision = await fetchPrevisionEclipse(40.4168, -3.7038);
+    const horas = await fetchHorasOpenMeteo(40.4168, -3.7038);
 
-    expect(prevision.horas.map((h) => h.hora)).toEqual([
+    expect(horas.map((h) => h.hora)).toEqual([
       "19:00",
       "20:00",
       "21:00",
       "22:00",
     ]);
-    expect(prevision.horas[1]).toEqual({
+    expect(horas[1]).toEqual({
       hora: "20:00",
       total: 15,
       baja: 10,
       media: 5,
       alta: 0,
     });
-    expect(prevision.veredicto.clave).toBe("despejado");
+  });
+
+  test("propaga las opciones de fetch (revalidate de la Data Cache)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify(respuestaOpenMeteo({})), { status: 200 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchHorasOpenMeteo(40, -3, { next: { revalidate: 1800 } });
+
+    expect(fetchMock.mock.calls[0]![1]).toEqual({ next: { revalidate: 1800 } });
   });
 
   test("lanza error si la API responde con fallo HTTP", async () => {
@@ -125,7 +229,22 @@ describe("fetchPrevisionEclipse", () => {
       "fetch",
       vi.fn().mockResolvedValue(new Response("error", { status: 500 })),
     );
-    await expect(fetchPrevisionEclipse(40, -3)).rejects.toThrow("500");
+    await expect(fetchHorasOpenMeteo(40, -3)).rejects.toThrow("500");
+  });
+
+  test("lanza error con el aviso de límite (200 + error:true)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({ error: true, reason: "Hourly API request limit exceeded" }),
+          { status: 200 },
+        ),
+      ),
+    );
+    await expect(fetchHorasOpenMeteo(40, -3)).rejects.toThrow(
+      "Hourly API request limit exceeded",
+    );
   });
 
   test("lanza error si faltan los datos horarios", async () => {
@@ -135,6 +254,6 @@ describe("fetchPrevisionEclipse", () => {
         new Response(JSON.stringify({ hourly: {} }), { status: 200 }),
       ),
     );
-    await expect(fetchPrevisionEclipse(40, -3)).rejects.toThrow();
+    await expect(fetchHorasOpenMeteo(40, -3)).rejects.toThrow();
   });
 });

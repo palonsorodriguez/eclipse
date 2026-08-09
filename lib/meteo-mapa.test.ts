@@ -222,6 +222,22 @@ describe("fetchNubesFranja", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// Cliente: obtenerNubesFranja pide el proxy /api/nubes-franja (issue #69)
+// ---------------------------------------------------------------------------
+
+/** Cuerpo de una respuesta correcta del proxy /api/nubes-franja. */
+function respuestaProxyNubes(n: number, nubosidad: number) {
+  return {
+    generado: "2026-08-09T12:00:00.000Z",
+    puntos: Array.from({ length: n }, (_, i) => ({
+      lat: 40 + i * 0.1,
+      lon: -8 + i * 0.1,
+      nubosidadMedia: nubosidad,
+    })),
+  };
+}
+
 describe("obtenerNubesFranja", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -229,34 +245,59 @@ describe("obtenerNubesFranja", () => {
     limpiarCacheNubes();
   });
 
-  test("cachea 30 min en memoria y refresca al caducar", async () => {
+  test("pide el proxy /api/nubes-franja, cachea 30 min y refresca al caducar", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-08-12T10:00:00Z"));
-    const fetchMock = mockOpenMeteo(10);
+    const fetchMock = vi.fn().mockImplementation(() =>
+      Promise.resolve(
+        new Response(JSON.stringify(respuestaProxyNubes(55, 10)), {
+          status: 200,
+        }),
+      ),
+    );
     vi.stubGlobal("fetch", fetchMock);
-    const banda = bandaSintetica();
 
-    const primera = await obtenerNubesFranja(banda);
-    const segunda = await obtenerNubesFranja(banda);
+    const primera = await obtenerNubesFranja();
+    const segunda = await obtenerNubesFranja();
     expect(fetchMock).toHaveBeenCalledTimes(1); // dentro de la caché
+    expect(fetchMock.mock.calls[0]![0]).toBe("/api/nubes-franja");
+    expect(primera).toHaveLength(55);
     expect(segunda).toBe(primera);
 
     vi.setSystemTime(new Date("2026-08-12T10:31:00Z"));
-    await obtenerNubesFranja(banda);
+    await obtenerNubesFranja();
     expect(fetchMock).toHaveBeenCalledTimes(2); // caché caducada → red
   });
 
   test("no cachea los fallos: el siguiente intento vuelve a la red", async () => {
     const fetchMock = vi
       .fn()
-      .mockResolvedValueOnce(new Response("error", { status: 500 }))
-      .mockImplementation(mockOpenMeteo(10));
+      .mockResolvedValueOnce(new Response("error", { status: 502 }))
+      .mockImplementation(() =>
+        Promise.resolve(
+          new Response(JSON.stringify(respuestaProxyNubes(55, 10)), {
+            status: 200,
+          }),
+        ),
+      );
     vi.stubGlobal("fetch", fetchMock);
-    const banda = bandaSintetica();
 
-    await expect(obtenerNubesFranja(banda)).rejects.toThrow();
-    const puntos = await obtenerNubesFranja(banda);
+    await expect(obtenerNubesFranja()).rejects.toThrow("502");
+    const puntos = await obtenerNubesFranja();
     expect(puntos.length).toBeGreaterThan(0);
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("lanza error si el proxy no trae puntos", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({ generado: "2026-08-09T12:00:00.000Z", puntos: [] }),
+          { status: 200 },
+        ),
+      ),
+    );
+    await expect(obtenerNubesFranja()).rejects.toThrow();
   });
 });
