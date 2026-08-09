@@ -114,6 +114,71 @@ export function alfaCorona(brillo: number, enTotalidad: boolean): number {
 }
 
 /**
+ * Parámetros del glare solar (el resplandor que domina a simple vista)
+ * para un Oscurecimiento dado — el "glare que respira" del issue #56.
+ */
+export interface GlareParcialidad {
+  /** Intensidad del resplandor [0, 1]: 1 sin eclipse, 0 en la Totalidad. */
+  intensidad: number;
+  /** Radio del halo como fracción del radio base [0.15, 1]. */
+  radio: number;
+  /**
+   * Asimetría de creciente [0, 1]: 0 = halo redondo; al crecer, el
+   * resplandor toma la forma del creciente de fotosfera superviviente y
+   * su centro se desplaza hacia el punto de contacto (a 1, colapsado
+   * exactamente sobre el punto del anillo de diamante).
+   */
+  creciente: number;
+}
+
+/** Claves (oscurecimiento → radio) de la curva del radio del glare. */
+const RADIO_GLARE: Array<[number, number]> = [
+  [0, 1],
+  [0.6, 0.8],
+  [0.85, 0.5],
+  [1, 0.15],
+];
+
+/**
+ * Curva del glare durante la parcialidad (issue #56): cómo respira el
+ * resplandor solar con el Oscurecimiento, para que se aprecie por dónde
+ * muerde la Luna aunque el mordisco en sí no se vea a simple vista.
+ *
+ * - **Intensidad** `(1 − o)^1.5`: monótona decreciente y perceptible
+ *   desde el principio (al 50% ya queda ~un tercio), 0 exacto en la
+ *   Totalidad. Más rápida que la fotosfera visible (lineal) porque el
+ *   tonemap fílmico del shader satura el halo: sin esta curva el glare
+ *   "domina demasiado y demasiado tarde".
+ * - **Radio**: adelgaza suavemente hasta el ~60% y con decisión después
+ *   (claves {@link RADIO_GLARE}); en los últimos % colapsa hacia un punto.
+ * - **Creciente**: 0 hasta el 85%; a partir de ahí el halo toma forma de
+ *   creciente (fenómeno real observable) apuntando al punto de contacto,
+ *   hasta colapsar sobre el punto del anillo de diamante en el 100%.
+ *
+ * Las tres componentes son monótonas en el Oscurecimiento.
+ */
+export function glareParcialidad(obscuracion: number): GlareParcialidad {
+  const o = clamp01(obscuracion);
+
+  let radio = RADIO_GLARE[RADIO_GLARE.length - 1][1];
+  for (let i = 0; i < RADIO_GLARE.length - 1; i++) {
+    const [oA, rA] = RADIO_GLARE[i];
+    const [oB, rB] = RADIO_GLARE[i + 1];
+    if (o <= oB) {
+      radio = lerp(rA, rB, (o - oA) / (oB - oA));
+      break;
+    }
+  }
+
+  const t = clamp01((o - 0.85) / 0.15);
+  return {
+    intensidad: Math.pow(1 - o, 1.5),
+    radio,
+    creciente: t * t * (3 - 2 * t), // smoothstep: sin codo en el 85%
+  };
+}
+
+/**
  * Intensidad [0, 1] de la cromosfera rosada en el limbo: visible en una
  * ventana de ±8 s alrededor de C2 y C3, tanto por fuera (últimos segundos
  * de parcialidad) como por dentro (primeros segundos de Totalidad, cuando

@@ -6,6 +6,7 @@ import {
   alturaTerreno,
   CAPAS_TERRENO,
   factorLuna,
+  glareParcialidad,
   gradienteExtincion,
   intensidadAnillo360,
   intensidadCromosfera,
@@ -75,6 +76,58 @@ describe("intensidadAnillo360 y alfaCorona", () => {
     expect(alfaCorona(0.01, false)).toBe(0);
     expect(alfaCorona(0.005, false)).toBeCloseTo(0.5);
     expect(alfaCorona(0, true)).toBe(1);
+  });
+});
+
+describe("glareParcialidad (el glare que respira, #56)", () => {
+  it("intensidad y radio caen monótonamente con el Oscurecimiento", () => {
+    let intPrevia = Infinity;
+    let radioPrevio = Infinity;
+    for (let o = 0; o <= 1.0001; o += 0.01) {
+      const g = glareParcialidad(o);
+      expect(g.intensidad).toBeLessThanOrEqual(intPrevia);
+      expect(g.radio).toBeLessThanOrEqual(radioPrevio);
+      intPrevia = g.intensidad;
+      radioPrevio = g.radio;
+    }
+  });
+
+  it("sin eclipse el glare es pleno; la caída se percibe pronto", () => {
+    expect(glareParcialidad(0)).toEqual({
+      intensidad: 1,
+      radio: 1,
+      creciente: 0,
+    });
+    // Al 50% de Oscurecimiento la intensidad ya ha caído a ~un tercio:
+    // el resplandor "respira" mucho antes del tramo final.
+    expect(glareParcialidad(0.5).intensidad).toBeLessThan(0.4);
+  });
+
+  it("a partir del ~60% el glare adelgaza con decisión", () => {
+    const r60 = glareParcialidad(0.6).radio;
+    const r85 = glareParcialidad(0.85).radio;
+    expect(r60).toBeGreaterThanOrEqual(0.75); // aún reconocible como halo
+    expect(r85).toBeLessThanOrEqual(0.55); // claramente más fino
+  });
+
+  it("el creciente solo aparece por encima del ~85% y crece monótono", () => {
+    expect(glareParcialidad(0.6).creciente).toBe(0);
+    expect(glareParcialidad(0.85).creciente).toBe(0);
+    let previo = 0;
+    for (let o = 0.85; o <= 1.0001; o += 0.01) {
+      const c = glareParcialidad(o).creciente;
+      expect(c).toBeGreaterThanOrEqual(previo);
+      previo = c;
+    }
+    expect(glareParcialidad(0.92).creciente).toBeGreaterThan(0);
+  });
+
+  it("colapso final: hacia el punto del anillo de diamante", () => {
+    const final = glareParcialidad(1);
+    expect(final.intensidad).toBe(0);
+    expect(final.radio).toBeLessThanOrEqual(0.2); // un punto, no un halo
+    expect(final.creciente).toBe(1); // centrado en el punto de contacto
+    expect(glareParcialidad(0.99).intensidad).toBeLessThan(0.005);
   });
 });
 

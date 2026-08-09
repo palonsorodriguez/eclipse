@@ -50,6 +50,7 @@ import {
 import {
   alfaCorona,
   factorLuna,
+  glareParcialidad,
   gradienteExtincion,
   intensidadAnillo360,
   intensidadCromosfera,
@@ -137,6 +138,9 @@ uniform float uRSol;         // radio del disco solar (px)
 uniform float uRLuna;        // radio del disco lunar (px)
 uniform float uBrillo;       // brillo de escena [0,1]
 uniform float uFotosfera;    // fracción de fotosfera visible (1-obscuración)
+uniform float uGlareInt;     // intensidad del glare [0,1] (#56)
+uniform float uGlareRadio;   // radio del halo, fracción del base (#56)
+uniform float uGlareCrec;    // asimetría de creciente del glare [0,1] (#56)
 uniform float uFactorLuna;   // luminancia Luna/cielo (acoplamiento)
 uniform float uAnillo360;    // anillo crepuscular [0,1]
 uniform float uAlfaCorona;   // fundido de la corona [0,1]
@@ -308,9 +312,20 @@ void main() {
   // OJO con las capas: la aureola es dispersión atmosférica DELANTE de la
   // Luna (no se ocluye — antes de C1 la Luna es realmente invisible);
   // fotosfera, protuberancias y corona están DETRÁS (sí se ocluyen).
-  float halo = uFotosfera * uRSol * uRSol
-             / (dSol * dSol + uRSol * uRSol * 0.04);
-  vec3 aureola = uTinte * (halo * halo * 4.5 + halo * 0.8);
+  //
+  // Glare que respira con el eclipse (#56, curvas de glareParcialidad en
+  // cielo-luz.ts): intensidad y radio caen con el Oscurecimiento; a >85%
+  // el centro del halo se desplaza hacia el punto de contacto y el lóbulo
+  // angular le da forma de creciente, hasta colapsar sobre el punto del
+  // anillo de diamante en los últimos %.
+  vec2 dirC = vec2(cos(uAngContacto), sin(uAngContacto));
+  vec2 relG = pix - (uSolPx + dirC * uRSol * uGlareCrec);
+  float dG = length(relG);
+  float rG = max(uRSol * uGlareRadio, 1.0);
+  float halo = uGlareInt * rG * rG / (dG * dG + rG * rG * 0.04);
+  float lobulo = 0.5 + 0.5 * dot(relG, dirC) / max(dG, 0.001);
+  float forma = mix(1.0, 0.12 + 0.88 * lobulo * lobulo, uGlareCrec);
+  vec3 aureola = uTinte * (halo * halo * 4.5 + halo * 0.8) * forma;
   vec3 solar = vec3(0.0);
 
   // Núcleo de fotosfera con oscurecimiento de limbo real: el borde es más
@@ -764,6 +779,11 @@ export function crearRendererCielo(
       ctx.uniform1f(u(progCielo, "uRLuna"), esc.luna.radio);
       ctx.uniform1f(u(progCielo, "uBrillo"), f.brillo);
       ctx.uniform1f(u(progCielo, "uFotosfera"), 1 - f.obscuracion);
+      // Glare que respira con el eclipse (#56).
+      const glare = glareParcialidad(f.obscuracion);
+      ctx.uniform1f(u(progCielo, "uGlareInt"), glare.intensidad);
+      ctx.uniform1f(u(progCielo, "uGlareRadio"), glare.radio);
+      ctx.uniform1f(u(progCielo, "uGlareCrec"), glare.creciente);
       ctx.uniform1f(u(progCielo, "uFactorLuna"), factorLuna(f.brillo));
       ctx.uniform1f(
         u(progCielo, "uAnillo360"),

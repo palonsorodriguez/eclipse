@@ -64,10 +64,12 @@ import {
   type PerfilCielo,
 } from "@/lib/cielo-horizonte";
 import {
-  alfaLunaFantasma,
+  alfaContornoLunar,
   dibujarHud,
+  hintGafasVisible,
   hudActivoPorDefecto,
   marcasHorarias,
+  TEXTO_HINT_GAFAS,
   type PuntoTrayectoria,
 } from "@/lib/cielo-hud";
 import { T_MAX, T_MIN } from "@/lib/reloj-tiempo";
@@ -365,7 +367,7 @@ export default function VistaCielo({ observador = FERROL }: VistaCieloProps) {
             trayectoria,
             marcas,
             posiciones,
-            alfaFantasma: alfaLunaFantasma(t, c1Ms, c4Ms),
+            alfaContorno: alfaContornoLunar(t, c2Ms, c3Ms),
           });
         } else {
           ctxHud.clearRect(0, 0, anchoHud, altoHud);
@@ -404,10 +406,8 @@ export default function VistaCielo({ observador = FERROL }: VistaCieloProps) {
     [
       engine,
       enTotalidad,
-      c1Ms,
       c2Ms,
       c3Ms,
-      c4Ms,
       obtenerCuerposDomo,
       modoGafas,
       modoSimulador,
@@ -462,6 +462,15 @@ export default function VistaCielo({ observador = FERROL }: VistaCieloProps) {
   // queda fuera del elemento fullscreen).
   const { tUi, reproduciendo, alternarReproduccion, saltarA } =
     useLineaDeTiempo({ contactos, onFrame: dibujar });
+
+  // Hint didáctico de gafas (#56): durante la parcialidad apreciable, la
+  // UI enseña que el mordisco solo se ve con filtro. tUi va cuantizado al
+  // segundo: una obscuración por segundo de UI, no por frame.
+  const oscUi = useMemo(
+    () => engine.obscurationAt(new Date(tUi)),
+    [engine, tUi],
+  );
+  const hintGafas = hintGafasVisible(oscUi, modoGafas);
 
   // --- Creación del renderer GL (y fallback limpio si no hay WebGL) -------
   useEffect(() => {
@@ -826,6 +835,23 @@ export default function VistaCielo({ observador = FERROL }: VistaCieloProps) {
             >
               ⌖
             </button>
+            {/* Hint didáctico (#56): sutil, junto al conmutador 👓. */}
+            <span
+              aria-hidden={!hintGafas}
+              style={{
+                fontSize: 11,
+                lineHeight: 1.25,
+                maxWidth: 150,
+                textAlign: "right",
+                color: "#ffd98a",
+                textShadow: "0 0 4px rgba(0,0,0,0.8)",
+                opacity: hintGafas ? 0.85 : 0,
+                transition: "opacity 0.4s",
+                pointerEvents: "none",
+              }}
+            >
+              {TEXTO_HINT_GAFAS}
+            </span>
             <button
               type="button"
               onClick={() => setModoGafas((v) => !v)}
