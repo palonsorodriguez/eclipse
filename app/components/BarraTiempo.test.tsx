@@ -3,6 +3,7 @@ import { describe, expect, test } from "vitest";
 import BarraTiempo, {
   cuentaAtrasEclipse,
   marcasBarra,
+  marcasBarraCompactas,
   siguienteModo,
   type MarcaBarra,
 } from "./BarraTiempo";
@@ -28,6 +29,24 @@ describe("siguienteModo (botón de velocidad cíclico)", () => {
       vistos.push(modo);
     }
     expect(vistos).toEqual([30, 60, 120, 300, "resumen"]);
+  });
+});
+
+describe("marcasBarraCompactas (pantallas estrechas)", () => {
+  test("eclipse total: C1 · Tot (destino C2 anticipado) · C4", () => {
+    const compactas = marcasBarraCompactas(CONTACTOS_TOTAL, T_MIN, T_MAX);
+    expect(compactas.map((m) => m.etiqueta)).toEqual(["C1", "Tot", "C4"]);
+    expect(compactas[1].destino).toBe(CONTACTOS_TOTAL.c2! - ANTICIPO_SALTO_MS);
+  });
+
+  test("eclipse parcial (sin C2/C3): C1 · Máx · C4", () => {
+    const parcial: ContactosMs = {
+      ...CONTACTOS_TOTAL,
+      c2: null,
+      c3: null,
+    };
+    const compactas = marcasBarraCompactas(parcial, T_MIN, T_MAX);
+    expect(compactas.map((m) => m.etiqueta)).toEqual(["C1", "Máx", "C4"]);
   });
 });
 

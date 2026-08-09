@@ -157,6 +157,29 @@ export function marcasBarra(
   }));
 }
 
+/**
+ * Variante para pantallas estrechas: en un slider de ~135 px las cinco
+ * marcas de 32 px se amontonan (C2/Máx/C3 caen a ~3 px entre sí). Se
+ * conservan solo C1, la entrada a la Totalidad (C2, etiquetada "Tot"; o
+ * el Máximo si el eclipse es parcial) y C4 — los tres saltos que un
+ * pulgar quiere de verdad.
+ */
+export function marcasBarraCompactas(
+  contactos: ContactosMs,
+  tMin: number,
+  tMax: number,
+): MarcaBarra[] {
+  const todas = marcasBarra(contactos, tMin, tMax);
+  const central =
+    todas.find((m) => m.etiqueta === "C2") ??
+    todas.find((m) => m.etiqueta === "Máx");
+  return todas
+    .filter((m) => m.etiqueta === "C1" || m.etiqueta === "C4" || m === central)
+    .map((m) =>
+      m === central && m.etiqueta === "C2" ? { ...m, etiqueta: "Tot" } : m,
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Componente
 // ---------------------------------------------------------------------------
@@ -266,7 +289,24 @@ export default function BarraTiempo({ observador }: BarraTiempoProps) {
     fijarModo,
   } = useLineaDeTiempo({ contactos });
 
-  const marcas = useMemo(() => marcasBarra(contactos, T_MIN, T_MAX), [contactos]);
+  // En pantallas estrechas, marcas compactas (C1 · Tot · C4): las cinco
+  // completas se amontonan en un slider de ~135 px (medido: 3 solapes).
+  const [estrecha, setEstrecha] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 480px)");
+    const alCambiar = (): void => setEstrecha(mq.matches);
+    alCambiar();
+    mq.addEventListener("change", alCambiar);
+    return () => mq.removeEventListener("change", alCambiar);
+  }, []);
+
+  const marcas = useMemo(
+    () =>
+      estrecha
+        ? marcasBarraCompactas(contactos, T_MIN, T_MAX)
+        : marcasBarra(contactos, T_MIN, T_MAX),
+    [contactos, estrecha],
+  );
 
   const oscuracion = useMemo(
     () => engine.obscurationAt(new Date(tUi)),
