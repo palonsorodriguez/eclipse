@@ -272,22 +272,35 @@ export default function PanelCircunstancias({ observador }: Props) {
   }, []);
   const cuentaAtras = ahora ? cuentaAtrasHasta(circ.maximo.instante, ahora) : null;
 
-  // Previsión Open-Meteo para el punto del Observador.
+  // Previsión Open-Meteo para el punto del Observador. `intentoMeteo`
+  // relanza el fetch: un reintento automático a los 30 s del primer fallo
+  // y los manuales del botón "Reintentar" (QA real: un cuelgue de red
+  // dejaba la previsión en timeout sin salida).
   const [meteo, setMeteo] = useState<EstadoMeteo>({ estado: "cargando" });
+  const [intentoMeteo, setIntentoMeteo] = useState(0);
   useEffect(() => {
     let cancelado = false;
+    let reintento: number | undefined;
     setMeteo({ estado: "cargando" });
     fetchPrevisionEclipse(observador.lat, observador.lon)
       .then((prevision) => {
         if (!cancelado) setMeteo({ estado: "ok", prevision });
       })
       .catch(() => {
-        if (!cancelado) setMeteo({ estado: "error" });
+        if (cancelado) return;
+        setMeteo({ estado: "error" });
+        if (intentoMeteo === 0) {
+          reintento = window.setTimeout(
+            () => setIntentoMeteo((n) => n + 1),
+            30_000,
+          );
+        }
       });
     return () => {
       cancelado = true;
+      window.clearTimeout(reintento);
     };
-  }, [observador.lat, observador.lon]);
+  }, [observador.lat, observador.lon, intentoMeteo]);
 
   // Perfil real del horizonte por relieve hacia el sector del eclipse.
   // Estados honestos (issue #61, máquina en lib/horizonte-estado.ts):
@@ -486,8 +499,23 @@ export default function PanelCircunstancias({ observador }: Props) {
         )}
         {meteo.estado === "error" && (
           <p style={{ margin: 0, opacity: 0.8 }}>
-            No hemos podido cargar la previsión ahora mismo. Inténtalo de
-            nuevo en un rato.
+            No hemos podido cargar la previsión ahora mismo (red lenta o
+            servicio saturado).{" "}
+            <button
+              type="button"
+              onClick={() => setIntentoMeteo((n) => n + 1)}
+              style={{
+                background: "none",
+                border: "1px solid rgba(255, 217, 122, 0.5)",
+                borderRadius: 6,
+                color: "#ffd97a",
+                cursor: "pointer",
+                font: "inherit",
+                padding: "0.1rem 0.6rem",
+              }}
+            >
+              Reintentar
+            </button>
           </p>
         )}
         {meteo.estado === "ok" && (

@@ -132,22 +132,41 @@ export function urlPrevision(lat: number, lon: number): string {
 }
 
 /**
+ * Tiempo máximo de espera de la petición a Open-Meteo: sin él, una
+ * conexión colgada dejaba "cargando…" para siempre (QA real: "me da
+ * timeout la predicción"). 10 s cubren de sobra una API que responde en
+ * ~0,3 s; pasado el límite, el llamante muestra su mensaje suave.
+ */
+export const TIMEOUT_METEO_MS = 10_000;
+
+/**
  * Descarga de Open-Meteo la previsión de nubosidad para la ventana del
  * eclipse (19:00–22:00 hora peninsular del 12-08-2026) y la clasifica.
  *
- * Lanza `Error` si la red falla, la respuesta no es 2xx o el cuerpo no trae
- * las horas esperadas; el llamante decide cómo degradar (mensaje suave).
+ * Lanza `Error` si la red falla o tarda más de TIMEOUT_METEO_MS, si la
+ * respuesta no es 2xx, si Open-Meteo devuelve su aviso de límite (HTTP
+ * 200 con `error: true`) o si el cuerpo no trae las horas esperadas; el
+ * llamante decide cómo degradar (mensaje suave).
  */
 export async function fetchPrevisionEclipse(
   lat: number,
   lon: number,
 ): Promise<PrevisionEclipse> {
-  const respuesta = await fetch(urlPrevision(lat, lon));
+  const respuesta = await fetch(urlPrevision(lat, lon), {
+    signal: AbortSignal.timeout(TIMEOUT_METEO_MS),
+  });
   if (!respuesta.ok) {
     throw new Error(`Open-Meteo respondió ${respuesta.status}`);
   }
 
-  const datos = (await respuesta.json()) as RespuestaOpenMeteo;
+  const datos = (await respuesta.json()) as RespuestaOpenMeteo & {
+    error?: boolean;
+    reason?: string;
+  };
+  if (datos.error) {
+    // Límite horario/diario de Open-Meteo: llega como 200 + error:true.
+    throw new Error(datos.reason ?? "Open-Meteo ha limitado las peticiones");
+  }
   const hourly = datos.hourly;
   const tiempos = hourly?.time;
   if (
