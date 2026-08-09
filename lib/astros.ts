@@ -174,15 +174,15 @@ export interface LienzoAstros {
   desfaseOrbital: number;
 }
 
-/** Lienzo por defecto de la Vista Astros (viewBox 0 0 820 380). */
+/** Lienzo por defecto de la Vista Astros (viewBox 0 0 960 440). */
 export const LIENZO_ASTROS: LienzoAstros = {
-  xSol: 95,
-  xTierra: 705,
-  yEcliptica: 205,
-  radioSol: 58,
-  radioTierra: 50,
-  radioLuna: 11,
-  radioOrbita: 135,
+  xSol: 110,
+  xTierra: 810,
+  yEcliptica: 230,
+  radioSol: 72,
+  radioTierra: 62,
+  radioLuna: 14,
+  radioOrbita: 170,
   ampliacionElongacion: 30,
   desfaseOrbital: 25,
 };
@@ -247,6 +247,46 @@ export function posicionLunaDiagrama(
   const y = lienzo.yEcliptica + (eje.y - lienzo.yEcliptica) * fraccion;
 
   return { x, y };
+}
+
+/**
+ * Posición de la Luna en el diagrama en un instante dado (ms de época):
+ * atajo puro sobre {@link geometriaAstros} + {@link posicionLunaDiagrama}
+ * para muestrear la órbita dibujada — la estela de la Luna y las marcas
+ * temporales (C1/Máx/C4) sobre su recorrido.
+ */
+export function posicionLunaEn(
+  tMs: number,
+  lienzo: LienzoAstros = LIENZO_ASTROS,
+): Punto {
+  return posicionLunaDiagrama(geometriaAstros(new Date(tMs)), lienzo);
+}
+
+/**
+ * Estela de la Luna: sus posiciones en el diagrama en instantes pasados
+ * cuantizados a la rejilla de `pasoMs` (múltiplos desde la época), de la
+ * más reciente a la más antigua, sin retroceder más allá de `tMinMs` ni
+ * devolver más de `maxPuntos`.
+ *
+ * La cuantización estabiliza la estela entre frames: solo cambia cuando
+ * el reloj cruza un múltiplo de `pasoMs`, así el pintor puede saltarse el
+ * recálculo en todos los demás frames.
+ */
+export function estelaLuna(
+  tMs: number,
+  tMinMs: number,
+  pasoMs: number,
+  maxPuntos: number,
+  lienzo: LienzoAstros = LIENZO_ASTROS,
+): Punto[] {
+  const base = Math.floor(tMs / pasoMs) * pasoMs;
+  const puntos: Punto[] = [];
+  for (let k = 0; k < maxPuntos; k++) {
+    const t = base - k * pasoMs;
+    if (t < tMinMs) break;
+    puntos.push(posicionLunaEn(t, lienzo));
+  }
+  return puntos;
 }
 
 /** Puntos de tangencia desde un punto exterior `p` al círculo (c, r). */

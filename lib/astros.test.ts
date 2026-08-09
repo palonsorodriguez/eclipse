@@ -15,9 +15,11 @@ import {
   conoPenumbra,
   conoUmbra,
   contactoUmbra,
+  estelaLuna,
   geometriaAstros,
   LIENZO_ASTROS,
   posicionLunaDiagrama,
+  posicionLunaEn,
   puntoEjeEnTierra,
   trayectoriaContacto,
 } from "./astros";
@@ -188,6 +190,60 @@ describe("conos de sombra", () => {
     // Y envuelve al disco terrestre casi entero: más ancha que la Tierra no
     // hace falta, pero sí claramente más que la umbra.
     expect(anchoFinal).toBeGreaterThan(LIENZO_ASTROS.radioTierra);
+  });
+});
+
+describe("posicionLunaEn — marcas temporales sobre la órbita", () => {
+  test("las marcas C1/Máx/C4 caen en el hueco Sol–Tierra, al norte y en orden oeste→este", () => {
+    // Contactos de referencia del 12-08-2026 para Madrid (~17:37, 18:32
+    // y 19:24 UT): la regla temporal que la Vista Astros pinta sobre la
+    // órbita dibujada.
+    const c1 = posicionLunaEn(Date.UTC(2026, 7, 12, 17, 37));
+    const max = posicionLunaEn(Date.UTC(2026, 7, 12, 18, 32));
+    const c4 = posicionLunaEn(Date.UTC(2026, 7, 12, 19, 24));
+
+    expect(c1.x).toBeLessThan(max.x);
+    expect(max.x).toBeLessThan(c4.x);
+    for (const p of [c1, max, c4]) {
+      expect(p.x).toBeGreaterThan(LIENZO_ASTROS.xSol + LIENZO_ASTROS.radioSol);
+      expect(p.x).toBeLessThan(LIENZO_ASTROS.xTierra - LIENZO_ASTROS.radioTierra);
+      // El recorrido va al norte de la eclíptica (la Luna pasa por encima).
+      expect(p.y).toBeLessThan(LIENZO_ASTROS.yEcliptica);
+    }
+  });
+});
+
+describe("estelaLuna", () => {
+  const PASO = 10 * 60_000;
+  const T_INICIO_VENTANA = Date.UTC(2026, 7, 12, 17, 15);
+
+  test("sigue a la Luna: posiciones pasadas, la más reciente primero, hacia el oeste", () => {
+    const t = Date.UTC(2026, 7, 12, 18, 27);
+    const puntos = estelaLuna(t, T_INICIO_VENTANA, PASO, 6);
+
+    expect(puntos.length).toBe(6);
+    // Hacia atrás en el tiempo, la Luna estaba cada vez más al oeste.
+    for (let i = 1; i < puntos.length; i++) {
+      expect(puntos[i].x).toBeLessThan(puntos[i - 1].x);
+    }
+    // Ningún punto de la estela se adelanta a la Luna actual.
+    const luna = posicionLunaEn(t);
+    for (const p of puntos) {
+      expect(p.x).toBeLessThanOrEqual(luna.x);
+    }
+  });
+
+  test("se corta en tMin y es estable dentro de cada paso de la rejilla", () => {
+    // Rejilla de 10 min: desde las 17:41 solo existen 17:40, 17:30 y
+    // 17:20 (las 17:10 quedan antes de la ventana).
+    const t = Date.UTC(2026, 7, 12, 17, 41);
+    expect(estelaLuna(t, T_INICIO_VENTANA, PASO, 8).length).toBe(3);
+
+    // Dentro del mismo paso la estela no cambia: el pintor solo recalcula
+    // al cruzar un múltiplo del paso.
+    expect(estelaLuna(t + 4 * 60_000, T_INICIO_VENTANA, PASO, 8)).toEqual(
+      estelaLuna(Date.UTC(2026, 7, 12, 17, 40), T_INICIO_VENTANA, PASO, 8),
+    );
   });
 });
 
