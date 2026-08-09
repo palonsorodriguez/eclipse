@@ -10,8 +10,8 @@ interface Props {
 type Buscar = (consulta: string, limite?: number) => Municipio[];
 
 const ESTILO_BOTON: React.CSSProperties = {
-  padding: "0.75rem 0.9rem",
-  fontSize: "1rem",
+  padding: "var(--pad-boton)",
+  fontSize: "var(--fs-dato)",
   color: "#e8e6f0",
   background: "#141830",
   border: "1px solid #2c3155",
@@ -201,8 +201,8 @@ export default function BuscadorMunicipio({ onSelect }: Props) {
             style={{
               width: "100%",
               boxSizing: "border-box",
-              padding: "0.75rem 1rem",
-              fontSize: "1rem",
+              padding: "var(--pad-control)",
+              fontSize: "var(--fs-dato)",
               color: "#e8e6f0",
               background: "#141830",
               border: "1px solid #2c3155",
@@ -249,7 +249,7 @@ export default function BuscadorMunicipio({ onSelect }: Props) {
                   }}
                 >
                   {municipio.nombre}{" "}
-                  <span style={{ opacity: 0.6, fontSize: "0.875rem" }}>
+                  <span style={{ opacity: 0.6, fontSize: "var(--fs-nota)" }}>
                     ({municipio.provincia})
                   </span>
                 </li>
@@ -275,7 +275,7 @@ export default function BuscadorMunicipio({ onSelect }: Props) {
           role="status"
           style={{
             margin: "0.5rem 0 0",
-            fontSize: "0.9rem",
+            fontSize: "var(--fs-peque)",
             opacity: 0.75,
           }}
         >

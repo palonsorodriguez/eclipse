@@ -184,19 +184,19 @@ const estilos = {
     maxWidth: "64rem",
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-    gap: "1rem",
+    gap: "var(--sp-bloque)",
     textAlign: "left" as const,
   },
   tarjeta: {
     background: "#141830",
     border: "1px solid #2c3155",
     borderRadius: "0.75rem",
-    padding: "1.25rem",
+    padding: "var(--sp-tarjeta)",
     color: "#e8e6f0",
   },
   titulo: {
-    margin: "0 0 0.75rem",
-    fontSize: "0.8rem",
+    margin: "0 0 var(--sp-tarjeta-v)",
+    fontSize: "var(--fs-mini)",
     fontWeight: 600,
     letterSpacing: "0.08em",
     textTransform: "uppercase" as const,
@@ -216,7 +216,7 @@ const estilos = {
     background: "rgba(255, 217, 122, 0.12)",
     border: "1px solid #ffd97a",
     borderRadius: "0.75rem",
-    padding: "1rem 1.25rem",
+    padding: "1rem var(--sp-tarjeta)",
     color: "#ffd97a",
     fontWeight: 600,
   },
@@ -225,9 +225,9 @@ const estilos = {
     background: "#141830",
     border: "1px solid #2c3155",
     borderRadius: "0.75rem",
-    padding: "0.9rem 1.25rem",
+    padding: "0.9rem var(--sp-tarjeta)",
     color: "#e8e6f0",
-    fontSize: "0.95rem",
+    fontSize: "var(--fs-peque)",
   },
 } as const;
 
@@ -387,7 +387,7 @@ export default function PanelCircunstancias({ observador }: Props) {
           nombre="C4 · Termina la parcialidad"
           hora={formatHoraLocal(circ.c4.instante)}
         />
-        <p style={{ margin: "0.75rem 0 0" }}>
+        <p style={{ margin: "var(--sp-tarjeta-v) 0 0" }}>
           {circ.tipo === "total" &&
           circ.duracionTotalidadSegundos !== undefined ? (
             <>
@@ -415,7 +415,7 @@ export default function PanelCircunstancias({ observador }: Props) {
             (acimut {Math.round(posicionSolMaximo.acimut)}°)
           </span>
         </p>
-        <p style={{ margin: "0.5rem 0 0", opacity: 0.6, fontSize: "0.85rem" }}>
+        <p style={{ margin: "0.5rem 0 0", opacity: 0.6, fontSize: "var(--fs-nota)" }}>
           Horas en hora peninsular (CEST).
         </p>
       </article>
@@ -428,7 +428,7 @@ export default function PanelCircunstancias({ observador }: Props) {
             aria-live="polite"
             style={{
               margin: 0,
-              fontSize: "1.6rem",
+              fontSize: "var(--fs-dato-grande)",
               fontWeight: 700,
               fontVariantNumeric: "tabular-nums",
               color: "#ffd97a",
@@ -442,7 +442,7 @@ export default function PanelCircunstancias({ observador }: Props) {
         ) : (
           <p style={{ margin: 0, opacity: 0.6 }}>Calculando…</p>
         )}
-        <p style={{ margin: "0.75rem 0 0", opacity: 0.7 }}>
+        <p style={{ margin: "var(--sp-tarjeta-v) 0 0", opacity: 0.7 }}>
           Máximo el 12-08-2026 a las {formatHoraLocal(circ.maximo.instante)}{" "}
           en {observador.nombre}.
         </p>
@@ -462,7 +462,7 @@ export default function PanelCircunstancias({ observador }: Props) {
         )}
         {meteo.estado === "ok" && (
           <>
-            <p style={{ margin: "0 0 0.75rem", fontWeight: 600 }}>
+            <p style={{ margin: "0 0 var(--sp-tarjeta-v)", fontWeight: 600 }}>
               {meteo.prevision.veredicto.texto}
             </p>
             <div role="list" aria-label="Nubosidad total por horas">
@@ -478,7 +478,7 @@ export default function PanelCircunstancias({ observador }: Props) {
                     padding: "0.2rem 0",
                   }}
                 >
-                  <span style={{ ...estilos.etiqueta, fontSize: "0.9rem" }}>
+                  <span style={{ ...estilos.etiqueta, fontSize: "var(--fs-peque)" }}>
                     {hora.hora}
                   </span>
                   <div
@@ -503,7 +503,7 @@ export default function PanelCircunstancias({ observador }: Props) {
                   <span
                     style={{
                       ...estilos.valor,
-                      fontSize: "0.9rem",
+                      fontSize: "var(--fs-peque)",
                       textAlign: "right",
                     }}
                   >
@@ -512,7 +512,7 @@ export default function PanelCircunstancias({ observador }: Props) {
                 </div>
               ))}
             </div>
-            <p style={{ margin: "0.75rem 0 0", opacity: 0.6, fontSize: "0.85rem" }}>
+            <p style={{ margin: "var(--sp-tarjeta-v) 0 0", opacity: 0.6, fontSize: "var(--fs-nota)" }}>
               Nubosidad total prevista el 12-08, hora peninsular.
             </p>
           </>
@@ -535,7 +535,7 @@ export default function PanelCircunstancias({ observador }: Props) {
         )}
         {horizonte.estado === "ok" && veredictoHorizonte && (
           <>
-            <p style={{ margin: "0 0 0.75rem", fontWeight: 600 }}>
+            <p style={{ margin: "0 0 var(--sp-tarjeta-v)", fontWeight: 600 }}>
               {veredictoHorizonte.tipo === "marino" && (
                 <>
                   🌊 Horizonte marino hacia el {rumboSolDecisivo} — el mejor
@@ -564,11 +564,11 @@ export default function PanelCircunstancias({ observador }: Props) {
               perfil={horizonte.perfil}
               recorridoSol={recorridoSol}
             />
-            <p style={{ margin: "0.75rem 0 0", opacity: 0.7, fontSize: "0.85rem" }}>
+            <p style={{ margin: "var(--sp-tarjeta-v) 0 0", opacity: 0.7, fontSize: "var(--fs-nota)" }}>
               Este cálculo considera el relieve natural; en ciudad, evita
               edificios altos hacia el {rumbo}.
             </p>
-            <p style={{ margin: "0.5rem 0 0", opacity: 0.6, fontSize: "0.85rem" }}>
+            <p style={{ margin: "0.5rem 0 0", opacity: 0.6, fontSize: "var(--fs-nota)" }}>
               Relieve: Open-Meteo Elevation (Copernicus DEM ~90 m), radios
               1–50 km. Barras: obstrucción del terreno por acimut. Línea:
               recorrido del sol C1→C4.
