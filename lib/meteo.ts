@@ -1,11 +1,26 @@
 /**
- * meteo — Previsión de nubosidad de Open-Meteo para la tarde del eclipse
- * (12-08-2026) en un punto lat/lon.
+ * meteo — Previsión de nubosidad para la tarde del eclipse (12-08-2026)
+ * en un punto lat/lon, servida por el proxy propio `/api/meteo` (#69).
  *
- * La meteo es crítica: de las nubes depende poder ver el eclipse. Este módulo
- * separa la lógica pura (clasificación del veredicto) del acceso de red
- * (fetch a Open-Meteo, sin clave API), de modo que la primera es testeable
- * sin mocks y el segundo se mockea en el límite del sistema (global fetch).
+ * El navegador ya NO habla con api.open-meteo.com para la previsión: el
+ * límite de Open-Meteo es por IP y el 12-08 miles de usuarios en la franja
+ * compartirán IP de operadora móvil (CGNAT) — el cupo compartido podía
+ * agotarse justo el día del eclipse. El proxy pide la previsión desde
+ * Vercel una vez por Zona (rejilla de {@link TAMANO_ZONA_GRADOS}°) cada
+ * 30 min y el edge la comparte entre todos los visitantes de la zona.
+ *
+ * Reparto de responsabilidades:
+ * - Lógica pura (clave de zona, clasificación del veredicto): testeable
+ *   sin mocks.
+ * - Parsing del formato Open-Meteo: vive en el SERVIDOR
+ *   ({@link fetchHorasOpenMeteo}, usada por `app/api/meteo/route.ts`).
+ *   Decisión (issue #69, punto 3): parseando en el servidor la respuesta
+ *   del proxy queda pequeña y estable (horas + sello `generado`), el
+ *   cliente no depende del formato de Open-Meteo y el manejo del aviso de
+ *   límite (HTTP 200 + `error: true`) queda donde puede evitar cachearlo.
+ * - Acceso de red del cliente ({@link fetchPrevisionEclipse}): pide
+ *   `/api/meteo` con el timeout de 10 s y el manejo de error de siempre;
+ *   el veredicto se clasifica en el cliente con la lógica pura.
  *
  * Horas en hora local peninsular (Europe/Madrid): la API ya devuelve las
  * horas en esa zona gracias al parámetro `timezone`.
@@ -98,6 +113,75 @@ export function clasificarVeredicto(horas: readonly NubosidadHora[]): Veredicto 
   return { clave, texto: TEXTOS[clave] };
 }
 
+// ---------------------------------------------------------------------------
+// Clave de zona (lógica pura, compartida por cliente y servidor)
+// ---------------------------------------------------------------------------
+
+/**
+ * Tamaño de la Zona meteorológica, en grados: la previsión se pide para
+ * el punto de una rejilla de 0,25° (~25 km), no para el municipio exacto.
+ * A esa escala la previsión de nubosidad no cambia de forma útil, y así
+ * todos los municipios de una zona comparten URL del proxy (misma entrada
+ * en la caché del edge y en la del SW) y una única llamada upstream cada
+ * 30 min.
+ */
+export const TAMANO_ZONA_GRADOS = 0.25;
+
+/**
+ * Clave de zona de un punto: lat/lon redondeadas al nodo más cercano de
+ * la rejilla de {@link TAMANO_ZONA_GRADOS}°. El `|| 0` evita el `-0` de
+ * IEEE 754 en puntos justo al oeste/sur de un nodo cero.
+ */
+export function claveZona(
+  lat: number,
+  lon: number,
+): { lat: number; lon: number } {
+  const redondear = (v: number) =>
+    Math.round(v / TAMANO_ZONA_GRADOS) * TAMANO_ZONA_GRADOS || 0;
+  return { lat: redondear(lat), lon: redondear(lon) };
+}
+
+// ---------------------------------------------------------------------------
+// Proxy /api/meteo: constantes compartidas por las rutas y el cliente
+// ---------------------------------------------------------------------------
+
+/** Ruta del proxy de la previsión del Observador. */
+export const RUTA_API_METEO = "/api/meteo";
+
+/**
+ * Revalidación del dato upstream y `s-maxage` del edge: 30 minutos. La
+ * previsión de Open-Meteo no se actualiza más deprisa; con esto todo el
+ * planeta genera como mucho una llamada upstream por zona cada 30 min.
+ */
+export const REVALIDATE_METEO_S = 1800;
+
+/**
+ * Cache-Control de las respuestas correctas del proxy: el edge de Vercel
+ * sirve la copia 30 min sin ejecutar la función y, mientras revalida,
+ * hasta 1 h más en stale-while-revalidate — el pico del día 12 lo absorbe
+ * el edge, no las funciones ni Open-Meteo.
+ */
+export const CACHE_CONTROL_METEO = `public, s-maxage=${REVALIDATE_METEO_S}, stale-while-revalidate=3600`;
+
+/**
+ * URL del proxy para un punto: los parámetros van ya normalizados a la
+ * clave de zona (dos decimales bastan para la rejilla de 0,25°). Todos
+ * los usuarios de una zona piden la MISMA URL — condición para que la
+ * caché del edge (y la del service worker) deduplique entre usuarios.
+ */
+export function urlApiMeteo(lat: number, lon: number): string {
+  const zona = claveZona(lat, lon);
+  const params = new URLSearchParams({
+    lat: zona.lat.toFixed(2),
+    lon: zona.lon.toFixed(2),
+  });
+  return `${RUTA_API_METEO}?${params.toString()}`;
+}
+
+// ---------------------------------------------------------------------------
+// Acceso upstream a Open-Meteo (solo lo usa el servidor: app/api/meteo)
+// ---------------------------------------------------------------------------
+
 /** Respuesta cruda de Open-Meteo que nos interesa (subconjunto). */
 interface RespuestaOpenMeteo {
   hourly?: {
@@ -107,12 +191,6 @@ interface RespuestaOpenMeteo {
     cloud_cover_mid?: number[];
     cloud_cover_high?: number[];
   };
-}
-
-/** Previsión completa para el panel: horas de la ventana + veredicto. */
-export interface PrevisionEclipse {
-  horas: NubosidadHora[];
-  veredicto: Veredicto;
 }
 
 /**
@@ -132,29 +210,21 @@ export function urlPrevision(lat: number, lon: number): string {
 }
 
 /**
- * Tiempo máximo de espera de la petición a Open-Meteo: sin él, una
- * conexión colgada dejaba "cargando…" para siempre (QA real: "me da
- * timeout la predicción"). 10 s cubren de sobra una API que responde en
- * ~0,3 s; pasado el límite, el llamante muestra su mensaje suave.
- */
-export const TIMEOUT_METEO_MS = 10_000;
-
-/**
- * Descarga de Open-Meteo la previsión de nubosidad para la ventana del
- * eclipse (19:00–22:00 hora peninsular del 12-08-2026) y la clasifica.
+ * Descarga de Open-Meteo la nubosidad de la ventana del eclipse para un
+ * punto y la parsea a {@link NubosidadHora}[]. La usa el route handler
+ * `/api/meteo` (con `init.next.revalidate` para la Data Cache); el
+ * navegador ya no la llama.
  *
- * Lanza `Error` si la red falla o tarda más de TIMEOUT_METEO_MS, si la
- * respuesta no es 2xx, si Open-Meteo devuelve su aviso de límite (HTTP
- * 200 con `error: true`) o si el cuerpo no trae las horas esperadas; el
- * llamante decide cómo degradar (mensaje suave).
+ * Lanza `Error` si la red falla, si la respuesta no es 2xx, si Open-Meteo
+ * devuelve su aviso de límite (HTTP 200 con `error: true`) o si el cuerpo
+ * no trae las horas esperadas.
  */
-export async function fetchPrevisionEclipse(
+export async function fetchHorasOpenMeteo(
   lat: number,
   lon: number,
-): Promise<PrevisionEclipse> {
-  const respuesta = await fetch(urlPrevision(lat, lon), {
-    signal: AbortSignal.timeout(TIMEOUT_METEO_MS),
-  });
+  init?: RequestInit & { next?: { revalidate?: number } },
+): Promise<NubosidadHora[]> {
+  const respuesta = await fetch(urlPrevision(lat, lon), init);
   if (!respuesta.ok) {
     throw new Error(`Open-Meteo respondió ${respuesta.status}`);
   }
@@ -195,6 +265,67 @@ export async function fetchPrevisionEclipse(
 
   if (horas.length === 0) {
     throw new Error("Open-Meteo no devolvió las horas de la ventana del eclipse");
+  }
+
+  return horas;
+}
+
+// ---------------------------------------------------------------------------
+// Acceso de red del cliente (fetch global, mockeable en tests)
+// ---------------------------------------------------------------------------
+
+/** Previsión completa para el panel: horas de la ventana + veredicto. */
+export interface PrevisionEclipse {
+  horas: NubosidadHora[];
+  veredicto: Veredicto;
+}
+
+/**
+ * Cuerpo de la respuesta del proxy `/api/meteo` (lo que valida el
+ * cliente; `zona` y `generado` — sello de cuándo se construyó la
+ * respuesta — son para depurar frescura de las cachés).
+ */
+interface RespuestaApiMeteo {
+  zona?: { lat: number; lon: number };
+  generado?: string;
+  horas?: NubosidadHora[];
+}
+
+/**
+ * Tiempo máximo de espera de la petición al proxy de meteo: sin él, una
+ * conexión colgada dejaba "cargando…" para siempre (QA real: "me da
+ * timeout la predicción"). 10 s cubren de sobra una respuesta servida por
+ * el edge; pasado el límite, el llamante muestra su mensaje suave. Este
+ * timeout de cliente cubre la petición completa al proxy — por eso el
+ * route handler no pasa AbortSignal a su fetch upstream (un fetch
+ * abortable puede quedar excluido de la Data Cache).
+ */
+export const TIMEOUT_METEO_MS = 10_000;
+
+/**
+ * Pide al proxy `/api/meteo` la previsión de nubosidad de la ventana del
+ * eclipse (19:00–22:00 hora peninsular del 12-08-2026) para la Zona del
+ * punto dado y la clasifica en el cliente.
+ *
+ * Lanza `Error` si la red falla o tarda más de TIMEOUT_METEO_MS, si la
+ * respuesta no es 2xx o si el cuerpo no trae horas; el llamante decide
+ * cómo degradar (mensaje suave con reintento).
+ */
+export async function fetchPrevisionEclipse(
+  lat: number,
+  lon: number,
+): Promise<PrevisionEclipse> {
+  const respuesta = await fetch(urlApiMeteo(lat, lon), {
+    signal: AbortSignal.timeout(TIMEOUT_METEO_MS),
+  });
+  if (!respuesta.ok) {
+    throw new Error(`El proxy de meteo respondió ${respuesta.status}`);
+  }
+
+  const datos = (await respuesta.json()) as RespuestaApiMeteo;
+  const horas = datos.horas;
+  if (!Array.isArray(horas) || horas.length === 0) {
+    throw new Error("Respuesta del proxy de meteo sin horas de previsión");
   }
 
   return { horas, veredicto: clasificarVeredicto(horas) };

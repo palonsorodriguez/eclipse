@@ -1,13 +1,22 @@
 /**
  * meteo-mapa — capa de nubes por zonas para la Vista Mapa: previsión de
- * nubosidad de Open-Meteo sobre una rejilla gruesa de puntos que cubre la
- * Franja de totalidad más un margen, para la ventana del eclipse del
- * 12-08-2026 ("si Ferrol amanece cubierto, ¿hacia dónde conduzco?").
+ * nubosidad sobre una rejilla gruesa de puntos que cubre la Franja de
+ * totalidad más un margen, para la ventana del eclipse del 12-08-2026
+ * ("si Ferrol amanece cubierto, ¿hacia dónde conduzco?").
  *
- * Separación igual que en `lib/meteo.ts` (el panel del Observador, que no
- * se toca): lógica pura testeable sin mocks (muestreo de puntos,
- * clasificación por color, agrupación de peticiones) y acceso de red
- * mockeable en el límite del sistema (global fetch).
+ * Desde el issue #69 el navegador pide la capa al proxy propio
+ * `/api/nubes-franja` (la rejilla es idéntica para todos los usuarios:
+ * una llamada upstream cada 30 min EN TOTAL, compartida por el edge de
+ * Vercel), en vez de a api.open-meteo.com — cuyo límite por IP podía
+ * agotarse el 12-08 con miles de usuarios tras CGNAT de operadora móvil.
+ *
+ * Separación igual que en `lib/meteo.ts` (el panel del Observador):
+ * - Lógica pura testeable sin mocks: muestreo de puntos, clasificación
+ *   por color, agrupación de peticiones.
+ * - Acceso upstream a Open-Meteo ({@link fetchNubesFranja}): lo usa SOLO
+ *   el route handler `app/api/nubes-franja/route.ts`.
+ * - Acceso de red del cliente ({@link obtenerNubesFranja}): pide el
+ *   proxy, con caché en memoria de 30 min.
  *
  * Open-Meteo admite múltiples coordenadas por petición con listas
  * separadas por comas (`latitude=a,b,c&longitude=x,y,z`) y responde con un
@@ -19,7 +28,7 @@
 import type { Position } from "geojson";
 import type { BandaTotalidadGeoJSON } from "./geodata";
 import { lineaBanda } from "./mapa";
-import { FECHA_ECLIPSE } from "./meteo";
+import { FECHA_ECLIPSE, TIMEOUT_METEO_MS } from "./meteo";
 
 // ---------------------------------------------------------------------------
 // Tipos
@@ -157,7 +166,7 @@ export function agruparCoordenadas<T>(
 }
 
 // ---------------------------------------------------------------------------
-// Acceso de red (fetch global, mockeable en tests)
+// Acceso upstream a Open-Meteo (solo lo usa el servidor: app/api/nubes-franja)
 // ---------------------------------------------------------------------------
 
 /**
@@ -215,8 +224,9 @@ function mediaVentana(hourly: RespuestaPunto["hourly"]): number {
 /** Descarga y parsea la previsión de un grupo (≤ 100 coordenadas). */
 async function fetchGrupo(
   puntos: readonly Coordenada[],
+  init?: RequestInit & { next?: { revalidate?: number } },
 ): Promise<PuntoNube[]> {
-  const respuesta = await fetch(urlNubesFranja(puntos));
+  const respuesta = await fetch(urlNubesFranja(puntos), init);
   if (!respuesta.ok) {
     throw new Error(`Open-Meteo respondió ${respuesta.status}`);
   }
@@ -240,40 +250,67 @@ async function fetchGrupo(
  * Descarga de Open-Meteo la nubosidad media de la ventana del eclipse
  * para cada punto, agrupando las coordenadas en el mínimo de peticiones
  * (lotes de {@link MAX_COORDS_POR_PETICION}). Devuelve los puntos en el
- * mismo orden de entrada.
+ * mismo orden de entrada. `init` se propaga a cada fetch (el route
+ * handler pasa `next: { revalidate }` para la Data Cache de Vercel).
  *
  * Lanza `Error` si la red falla, alguna respuesta no es 2xx o el cuerpo
  * no trae las horas esperadas; el llamante decide cómo degradar.
  */
 export async function fetchNubesFranja(
   puntos: readonly Coordenada[],
+  init?: RequestInit & { next?: { revalidate?: number } },
 ): Promise<PuntoNube[]> {
   const grupos = agruparCoordenadas(puntos, MAX_COORDS_POR_PETICION);
-  const resultados = await Promise.all(grupos.map(fetchGrupo));
+  const resultados = await Promise.all(
+    grupos.map((grupo) => fetchGrupo(grupo, init)),
+  );
   return resultados.flat();
 }
 
 // ---------------------------------------------------------------------------
-// Caché en memoria (30 min)
+// Acceso de red del cliente: proxy /api/nubes-franja + caché en memoria
 // ---------------------------------------------------------------------------
 
-/** Vida de la caché de la capa de nubes: 30 minutos. */
+/** Ruta del proxy de la capa de nubes (rejilla fija en el servidor). */
+export const RUTA_API_NUBES_FRANJA = "/api/nubes-franja";
+
+/** Vida de la caché en memoria de la capa de nubes: 30 minutos. */
 export const CADUCIDAD_CACHE_MS = 30 * 60_000;
 
 let cacheNubes: { puntos: PuntoNube[]; expira: number } | null = null;
 
 /**
- * La previsión de nubes de toda la franja, con caché en memoria de
+ * Cuerpo de la respuesta del proxy `/api/nubes-franja` (lo que valida el
+ * cliente; `generado` — sello de cuándo se construyó la respuesta — es
+ * para depurar frescura de las cachés).
+ */
+interface RespuestaApiNubes {
+  generado?: string;
+  puntos?: PuntoNube[];
+}
+
+/**
+ * La previsión de nubes de toda la franja, pedida al proxy
+ * `/api/nubes-franja` (la rejilla de 55 puntos vive en el servidor, por
+ * eso ya no hace falta pasar la banda), con caché en memoria de
  * {@link CADUCIDAD_CACHE_MS}: la Vista Mapa la pide cada vez que se
  * activa el toggle, pero solo se vuelve a la red cuando la caché caduca.
  * Los fallos no se cachean.
  */
-export async function obtenerNubesFranja(
-  banda: BandaTotalidadGeoJSON,
-): Promise<PuntoNube[]> {
+export async function obtenerNubesFranja(): Promise<PuntoNube[]> {
   const ahora = Date.now();
   if (cacheNubes && ahora < cacheNubes.expira) return cacheNubes.puntos;
-  const puntos = await fetchNubesFranja(puntosMuestreo(banda));
+  const respuesta = await fetch(RUTA_API_NUBES_FRANJA, {
+    signal: AbortSignal.timeout(TIMEOUT_METEO_MS),
+  });
+  if (!respuesta.ok) {
+    throw new Error(`El proxy de nubes respondió ${respuesta.status}`);
+  }
+  const datos = (await respuesta.json()) as RespuestaApiNubes;
+  const puntos = datos.puntos;
+  if (!Array.isArray(puntos) || puntos.length === 0) {
+    throw new Error("Respuesta del proxy de nubes sin puntos de previsión");
+  }
   cacheNubes = { puntos, expira: ahora + CADUCIDAD_CACHE_MS };
   return puntos;
 }

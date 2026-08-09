@@ -11,8 +11,12 @@
  * - Navegaciones y estáticos de `/_next/` → stale-while-revalidate (la caché
  *   dinámica va recogiendo los chunks que Next descubre en runtime).
  * - Chunk de municipios (~620 KB, inmutable por hash) → cache-first.
- * - api.open-meteo.com → network-first con fallback al último dato cacheado
- *   (salvo /v1/elevation, que no pasa por el SW: su caché es de aplicación).
+ * - `/api/` (proxy propio de meteo, #69: /api/meteo por zonas y
+ *   /api/nubes-franja) → network-first con fallback al último dato
+ *   cacheado. Sustituye a la antigua regla de api.open-meteo.com: la
+ *   meteo ya no se pide directa a Open-Meteo desde el navegador. La única
+ *   petición directa que queda a api.open-meteo.com es /v1/elevation, que
+ *   no pasa por el SW: su caché es de aplicación (localStorage, #61).
  * - basemaps.cartocdn.com (estilo, teselas, glifos) → cache-first con límite
  *   de ~200 entradas y purga simple de las más antiguas.
  *
@@ -156,6 +160,14 @@ self.addEventListener("fetch", (evento) => {
   }
 
   if (url.origin === self.location.origin) {
+    // Proxy propio de meteo (#69): datos frescos si hay red; sin red, el
+    // último dato cacheado — el modo offline sigue mostrando la última
+    // previsión. Las respuestas de error no se cachean (networkFirst solo
+    // guarda respuestas ok, y el proxy responde los fallos con no-store).
+    if (url.pathname.startsWith("/api/")) {
+      evento.respondWith(networkFirst(peticion, CACHE_METEO));
+      return;
+    }
     // Chunk del Nomenclátor (~620 KB, con hash en el nombre): cache-first.
     if (url.pathname.startsWith("/_next/") && url.pathname.includes("municipios")) {
       evento.respondWith(cacheFirst(peticion, CACHE_DINAMICA));
@@ -178,15 +190,12 @@ self.addEventListener("fetch", (evento) => {
     return;
   }
 
-  if (url.hostname === "api.open-meteo.com") {
-    // La elevación NO se cachea en el SW: su caché es de aplicación
-    // (localStorage por municipio, lib/horizonte.ts, issue #61). Además la
-    // API devuelve sus fallos de límite como HTTP 200 con error:true —
-    // cachearlos aquí serviría errores "frescos" para siempre.
-    if (url.pathname.startsWith("/v1/elevation")) return;
-    evento.respondWith(networkFirst(peticion, CACHE_METEO));
-    return;
-  }
+  // api.open-meteo.com ya no se intercepta (#69): la previsión viaja por
+  // el proxy propio /api/ (regla de arriba) y la única petición directa
+  // que queda es /v1/elevation, cuya caché es de aplicación (localStorage
+  // por municipio, lib/horizonte.ts, issue #61) — además sus fallos de
+  // límite llegan como HTTP 200 con error:true y cachearlos aquí serviría
+  // errores "frescos" para siempre.
 
   if (url.hostname.endsWith("cartocdn.com")) {
     evento.respondWith(cacheFirst(peticion, CACHE_TESELAS, LIMITE_TESELAS));
