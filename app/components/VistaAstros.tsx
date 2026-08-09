@@ -86,7 +86,8 @@ function textoEstado(geo: GeometriaAstros): string {
 }
 
 export default function VistaAstros() {
-  const [abierta, setAbierta] = useState(false);
+  // Desplegada por defecto: escondida nadie la encontraba (feedback real).
+  const [abierta, setAbierta] = useState(true);
 
   const lunaRef = useRef<SVGCircleElement | null>(null);
   const etiquetaLunaRef = useRef<SVGTextElement | null>(null);
@@ -157,7 +158,11 @@ export default function VistaAstros() {
       aria-label="Vista Astros"
       style={{ width: "100%", maxWidth: 960, margin: "0 auto", textAlign: "left" }}
     >
+      <h2 style={{ textAlign: "left", fontSize: "1.3rem", marginBottom: 8 }}>
+        Vista Astros
+      </h2>
       <details
+        open
         onToggle={(e) => setAbierta((e.target as HTMLDetailsElement).open)}
         style={{
           background: "#0e1120",
@@ -170,12 +175,12 @@ export default function VistaAstros() {
           style={{
             cursor: "pointer",
             fontFamily: "var(--fuente-titulos), system-ui, sans-serif",
-            fontSize: "1.3rem",
+            fontSize: "1.05rem",
             padding: "0.5rem 0",
             color: "#ffe9a8",
           }}
         >
-          ¿Por qué pasa esto?
+          ¿Por qué pasa esto? — Sol, Luna y Tierra en directo
         </summary>
 
         <p style={{ margin: "0.4rem 0 0.8rem", opacity: 0.85 }}>
