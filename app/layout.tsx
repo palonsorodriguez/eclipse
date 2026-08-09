@@ -71,7 +71,8 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             padding: "2.5rem 1rem calc(2rem + 61px)",
           }}
         >
-          Hecho en Ferrol, bajo la franja de totalidad — Pablo Alonso · 2026
+          Hecho por un asturiano en Ferrol, bajo la franja de totalidad —
+          Pablo Alonso · 2026
         </footer>
         {/* Vercel Web Analytics sin paquete npm (su peer opcional de Svelte
             choca con el vite de vitest): el script oficial responde en
