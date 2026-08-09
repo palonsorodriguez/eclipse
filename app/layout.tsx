@@ -140,6 +140,10 @@ export default function RootLayout({ children }: { children: ReactNode }) {
             choca con el vite de vitest): el script oficial responde en
             /_vercel/insights/ cuando Analytics está activado en el proyecto. */}
         <Script src="/_vercel/insights/script.js" strategy="lazyOnload" />
+        <Script
+          src="/_vercel/speed-insights/script.js"
+          strategy="lazyOnload"
+        />
       </body>
     </html>
   );
