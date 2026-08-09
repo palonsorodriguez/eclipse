@@ -15,10 +15,18 @@ import {
   type PrevisionEclipse,
 } from "@/lib/meteo";
 import {
+  esErrorSaturacion,
   evaluarHorizonte,
   fetchPerfilHorizonte,
   type PerfilHorizonte,
 } from "@/lib/horizonte";
+import {
+  esperaReintentoSaturacion,
+  transicionHorizonte,
+  LIMITE_MIDIENDO_MS,
+  type EstadoTarjetaHorizonte,
+  type EventoHorizonte,
+} from "@/lib/horizonte-estado";
 
 interface Props {
   /** Observador seleccionado (municipio con lat/lon). */
@@ -31,11 +39,6 @@ const ALTITUD_AVISO_HORIZONTE = 15;
 type EstadoMeteo =
   | { estado: "cargando" }
   | { estado: "ok"; prevision: PrevisionEclipse }
-  | { estado: "error" };
-
-type EstadoHorizonte =
-  | { estado: "cargando" }
-  | { estado: "ok"; perfil: PerfilHorizonte }
   | { estado: "error" };
 
 /** Grados con un decimal a la española, p. ej. 1.24 → "1,2°". */
@@ -287,12 +290,27 @@ export default function PanelCircunstancias({ observador }: Props) {
   }, [observador.lat, observador.lon]);
 
   // Perfil real del horizonte por relieve hacia el sector del eclipse.
-  const [horizonte, setHorizonte] = useState<EstadoHorizonte>({
-    estado: "cargando",
+  // Estados honestos (issue #61, máquina en lib/horizonte-estado.ts):
+  // midiendo (con límite de tiempo) → ok | saturado (API limitada, con
+  // reintento automático programado) | error (fallo definitivo).
+  const [horizonte, setHorizonte] = useState<EstadoTarjetaHorizonte>({
+    estado: "midiendo",
   });
+  const [intentoHorizonte, setIntentoHorizonte] = useState(0);
   useEffect(() => {
     let cancelado = false;
-    setHorizonte({ estado: "cargando" });
+    setHorizonte({ estado: "midiendo" });
+    const despachar = (evento: EventoHorizonte) => {
+      if (!cancelado) {
+        setHorizonte((previo) => transicionHorizonte(previo, evento));
+      }
+    };
+    // Límite del "midiendo…": nunca una espera infinita. Si la promesa
+    // sigue viva y acaba resolviendo, el evento "perfil" gana igualmente.
+    const temporizador = setTimeout(
+      () => despachar({ tipo: "tiempo-agotado" }),
+      LIMITE_MIDIENDO_MS,
+    );
     const acimutC1 = engine.sunMoonPositions(circ.c1.instante).sol.acimut;
     const acimutC4 = engine.sunMoonPositions(circ.c4.instante).sol.acimut;
     fetchPerfilHorizonte(
@@ -300,16 +318,28 @@ export default function PanelCircunstancias({ observador }: Props) {
       acimutC1,
       acimutC4,
     )
-      .then((perfil) => {
-        if (!cancelado) setHorizonte({ estado: "ok", perfil });
-      })
-      .catch(() => {
-        if (!cancelado) setHorizonte({ estado: "error" });
-      });
+      .then((perfil) => despachar({ tipo: "perfil", perfil }))
+      .catch((error: unknown) =>
+        despachar({ tipo: "fallo", saturado: esErrorSaturacion(error) }),
+      );
     return () => {
       cancelado = true;
+      clearTimeout(temporizador);
     };
-  }, [engine, circ, observador.lat, observador.lon]);
+  }, [engine, circ, observador.lat, observador.lon, intentoHorizonte]);
+
+  // Reintento automático mientras el servicio esté saturado, respetando
+  // la ventana del límite (esperaReintentoSaturacion). Si el perfil llega
+  // por otro camino antes (promesa tardía), el estado sale de "saturado"
+  // y este efecto cancela el temporizador.
+  useEffect(() => {
+    if (horizonte.estado !== "saturado") return;
+    const temporizador = setTimeout(
+      () => setIntentoHorizonte((intento) => intento + 1),
+      esperaReintentoSaturacion(new Date()),
+    );
+    return () => clearTimeout(temporizador);
+  }, [horizonte.estado]);
 
   // Instante decisivo para el veredicto del horizonte: mitad de la
   // Totalidad si la hay; el Máximo si el eclipse es parcial.
@@ -522,9 +552,15 @@ export default function PanelCircunstancias({ observador }: Props) {
       {/* Horizonte real por relieve */}
       <article style={estilos.tarjeta}>
         <h2 style={estilos.titulo}>¿Me tapará el monte?</h2>
-        {horizonte.estado === "cargando" && (
+        {horizonte.estado === "midiendo" && (
           <p style={{ margin: 0, opacity: 0.6 }}>
             Midiendo el relieve hacia el {rumboSolDecisivo}…
+          </p>
+        )}
+        {horizonte.estado === "saturado" && (
+          <p style={{ margin: 0, opacity: 0.8 }}>
+            El servicio de relieve está saturado — reintento automático en
+            unos minutos.
           </p>
         )}
         {horizonte.estado === "error" && (

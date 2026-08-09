@@ -25,11 +25,23 @@
  * `access-control-allow-origin` — inviable desde el navegador — y además
  * limita a 1 petición/segundo.
  *
+ * OJO (verificado en producción, issue #61): además del 429 (límite por
+ * minuto), la API responde a veces **HTTP 200** con
+ * `{"error":true,"reason":"Hourly API request limit exceeded"}` — un límite
+ * horario disfrazado de éxito. Ese cuerpo se maneja explícitamente: se lanza
+ * {@link ErrorSaturacionElevacion} (reintentar a los 30 s no sirve; la
+ * ventana es horaria) para que la UI pueda ser honesta y programar el
+ * reintento (`lib/horizonte-estado.ts`).
+ *
  * Separación lógica pura / red, como en `lib/meteo.ts`: la geometría
  * (ángulo, curvatura, sector, agrupación) es pura y testeable; el acceso de
  * red se mockea en el límite del sistema (global fetch). Los resultados se
- * cachean por Observador.
+ * cachean por Observador en memoria y, además, de forma **persistente**
+ * (`lib/almacen-local.ts`, sin caducidad — el relieve no cambia): un
+ * municipio ya medido no vuelve a tocar la red ni tras recargar.
  */
+
+import { guardarAlmacen, leerAlmacen } from "./almacen-local";
 
 /** Radio medio de la Tierra en metros. */
 const RADIO_TIERRA_M = 6_371_000;
@@ -44,13 +56,17 @@ export const MARGEN_SECTOR = 20;
 export const PASO_ACIMUT = 2;
 
 /**
- * Radios de muestreo del terreno a lo largo de cada acimut, en km,
- * aproximadamente logarítmicos de 1 a 50 km: densos cerca (donde un
- * monte modesto puede subtender varios grados) y espaciados lejos.
+ * Radios de muestreo del terreno a lo largo de cada acimut, en km, de 1 a
+ * 50 km con paso creciente (razón ~1,3 cerca → ~2 lejos): densos cerca,
+ * donde un monte modesto puede subtender varios grados, y espaciados lejos,
+ * donde la curvatura terrestre hunde el relieve (a 25 km ya resta ~49 m y a
+ * 50 km ~196 m — solo las grandes sierras asoman). Eran 16 radios; con 9 el
+ * sector completo de un municipio real (27–30 acimuts) cabe en ≤ 3
+ * peticiones de 100 coordenadas y el presupuesto total queda en ≤ 4 por
+ * municipio nuevo (issue #61, presupuesto completo en `cielo-horizonte.ts`).
  */
 export const RADIOS_KM = [
-  1, 1.3, 1.7, 2.2, 2.9, 3.7, 4.8, 6.3, 8.1, 10.5, 13.6, 17.7, 22.9, 29.7,
-  38.5, 50,
+  1, 1.3, 1.8, 2.7, 4.4, 7.4, 13.5, 25.5, 50,
 ] as const;
 
 /** Elevación (m) por debajo de la cual una muestra se considera mar. */
@@ -281,9 +297,41 @@ export function urlElevacion(puntos: readonly PuntoGeo[]): string {
   return `https://api.open-meteo.com/v1/elevation?latitude=${latitude}&longitude=${longitude}`;
 }
 
-/** Respuesta cruda de Open-Meteo Elevation. */
+/**
+ * Respuesta cruda de Open-Meteo Elevation. OJO: los fallos de la API pueden
+ * llegar como HTTP 200 con `error: true` y un `reason` (verificado en
+ * producción: `{"error":true,"reason":"Hourly API request limit exceeded"}`);
+ * tratar ese cuerpo como éxito o como fallo mudo deja a la UI mintiendo.
+ */
 interface RespuestaElevacion {
   elevation?: number[];
+  error?: boolean;
+  reason?: string;
+}
+
+/**
+ * La API de elevación está saturada (límite de peticiones): o un HTTP 429
+ * (ventana por minuto, ~600 coordenadas/min) o un HTTP 200 con
+ * `error: true` y motivo "Hourly API request limit exceeded" (ventana por
+ * hora). La UI distingue este fallo del resto para ser honesta y programar
+ * un reintento ({@link esErrorSaturacion}, `lib/horizonte-estado.ts`).
+ */
+export class ErrorSaturacionElevacion extends Error {
+  /** Ventana del límite alcanzado: decide si vale la pena reintentar ya. */
+  readonly ventana: "minuto" | "hora";
+
+  constructor(mensaje: string, ventana: "minuto" | "hora") {
+    super(mensaje);
+    this.name = "ErrorSaturacionElevacion";
+    this.ventana = ventana;
+  }
+}
+
+/** ¿Es este fallo una saturación (límite de peticiones) de la API? */
+export function esErrorSaturacion(
+  error: unknown,
+): error is ErrorSaturacionElevacion {
+  return error instanceof ErrorSaturacionElevacion;
 }
 
 /**
@@ -303,10 +351,28 @@ function esperar(ms: number): Promise<void> {
 
 async function fetchGrupo(grupo: readonly PuntoGeo[]): Promise<number[]> {
   const respuesta = await fetch(urlElevacion(grupo));
+  if (respuesta.status === 429) {
+    throw new ErrorSaturacionElevacion(
+      "Open-Meteo Elevation respondió 429 (límite por minuto)",
+      "minuto",
+    );
+  }
   if (!respuesta.ok) {
     throw new Error(`Open-Meteo Elevation respondió ${respuesta.status}`);
   }
   const datos = (await respuesta.json()) as RespuestaElevacion;
+  // Fallo disfrazado de éxito: HTTP 200 con error:true (p. ej. "Hourly API
+  // request limit exceeded", verificado en producción). Nunca es un perfil.
+  if (datos.error) {
+    const motivo = datos.reason ?? "error sin motivo";
+    if (/limit/i.test(motivo)) {
+      throw new ErrorSaturacionElevacion(
+        `Open-Meteo Elevation saturada: ${motivo}`,
+        "hora",
+      );
+    }
+    throw new Error(`Open-Meteo Elevation rechazó la petición: ${motivo}`);
+  }
   if (!datos.elevation || datos.elevation.length !== grupo.length) {
     throw new Error(
       "Open-Meteo Elevation devolvió un número de elevaciones inesperado",
@@ -322,9 +388,13 @@ async function fetchGrupoConReintentos(
     try {
       return await fetchGrupo(grupo);
     } catch (error) {
-      const esLimite =
-        error instanceof Error && error.message.includes("429");
-      if (!esLimite || intento >= MAX_REINTENTOS_429) throw error;
+      // Solo el 429 (ventana por minuto) se reintenta aquí: esperar 30 s
+      // cruza el reinicio de esa ventana. El límite HORARIO no — reintentar
+      // en segundos es gastar peticiones; ese reintento lo programa la UI
+      // en su ventana (lib/horizonte-estado.ts).
+      const esLimiteMinuto =
+        esErrorSaturacion(error) && error.ventana === "minuto";
+      if (!esLimiteMinuto || intento >= MAX_REINTENTOS_429) throw error;
       await esperar(ESPERA_REINTENTO_MS);
     }
   }
@@ -354,8 +424,54 @@ export async function fetchElevaciones(
   return elevaciones;
 }
 
-/** Caché de perfiles por Observador y sector (clave lat/lon redondeados). */
+/** Caché en memoria de perfiles por Observador y sector (promesas). */
 const cachePerfiles = new Map<string, Promise<PerfilHorizonte>>();
+
+/**
+ * Prefijo de la caché persistente de perfiles del sector. La versión va en
+ * la clave: súbela si cambia la forma de {@link PerfilHorizonte} o el
+ * muestreo ({@link RADIOS_KM}, {@link PASO_ACIMUT}, {@link MARGEN_SECTOR})
+ * — las claves viejas quedan huérfanas y se vuelve a medir.
+ */
+const PREFIJO_PERFIL_PERSISTIDO = "eclipse.horizonte.v1|";
+
+/**
+ * Clave de caché de un Observador y su sector: lat/lon redondeadas a 4
+ * decimales (~11 m, de sobra para distinguir municipios) y los acimuts del
+ * sector al grado. La comparten la caché en memoria y la persistente.
+ */
+export function claveDePerfil(
+  observador: PuntoGeo,
+  acimutSolC1: number,
+  acimutSolC4: number,
+): string {
+  return [
+    observador.lat.toFixed(4),
+    observador.lon.toFixed(4),
+    Math.round(acimutSolC1),
+    Math.round(acimutSolC4),
+  ].join("|");
+}
+
+/** Validación mínima de un perfil rescatado del almacén persistente. */
+function esPerfilPersistidoValido(valor: unknown): valor is PerfilHorizonte {
+  if (typeof valor !== "object" || valor === null) return false;
+  const perfil = valor as PerfilHorizonte;
+  return (
+    typeof perfil.elevacionObservador === "number" &&
+    Array.isArray(perfil.acimuts) &&
+    perfil.acimuts.length > 0 &&
+    perfil.acimuts.every(
+      (o) =>
+        typeof o === "object" &&
+        o !== null &&
+        typeof o.acimut === "number" &&
+        typeof o.angulo === "number" &&
+        typeof o.distanciaKm === "number" &&
+        typeof o.fraccionMar === "number",
+    )
+  );
+}
 
 /**
  * Perfil de elevación del horizonte de un Observador hacia el sector del
@@ -364,26 +480,39 @@ const cachePerfiles = new Map<string, Promise<PerfilHorizonte>>();
  * radios {@link RADIOS_KM} y deriva el ángulo de obstrucción por acimut con
  * corrección de curvatura terrestre.
  *
- * El resultado se cachea por Observador (y sector): elegir el mismo
- * municipio dos veces no repite las ~6 peticiones. Un fallo de red no
- * envenena la caché (se puede reintentar).
+ * El resultado se cachea por Observador (y sector) en dos niveles:
+ * en memoria (la promesa, compartida con `cielo-horizonte`) y de forma
+ * persistente sin caducidad (`localStorage` — el relieve no cambia). Un
+ * municipio ya medido, incluso en una visita anterior, muestra su veredicto
+ * sin tocar la red; eso cubre también al Observador restaurado desde una
+ * URL compartida. Un fallo de red no envenena ninguna de las dos cachés
+ * (se puede reintentar).
  */
 export function fetchPerfilHorizonte(
   observador: PuntoGeo,
   acimutSolC1: number,
   acimutSolC4: number,
 ): Promise<PerfilHorizonte> {
-  const clave = [
-    observador.lat.toFixed(4),
-    observador.lon.toFixed(4),
-    Math.round(acimutSolC1),
-    Math.round(acimutSolC4),
-  ].join("|");
+  const clave = claveDePerfil(observador, acimutSolC1, acimutSolC4);
 
   const cacheado = cachePerfiles.get(clave);
   if (cacheado) return cacheado;
 
-  const promesa = calcularPerfil(observador, acimutSolC1, acimutSolC4);
+  const persistido = leerAlmacen<PerfilHorizonte>(
+    PREFIJO_PERFIL_PERSISTIDO + clave,
+  );
+  if (esPerfilPersistidoValido(persistido)) {
+    const promesa = Promise.resolve(persistido);
+    cachePerfiles.set(clave, promesa);
+    return promesa;
+  }
+
+  const promesa = calcularPerfil(observador, acimutSolC1, acimutSolC4).then(
+    (perfil) => {
+      guardarAlmacen(PREFIJO_PERFIL_PERSISTIDO + clave, perfil);
+      return perfil;
+    },
+  );
   cachePerfiles.set(clave, promesa);
   promesa.catch(() => cachePerfiles.delete(clave));
   return promesa;

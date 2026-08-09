@@ -213,9 +213,41 @@ export default function VistaCielo({ observador = FERROL }: VistaCieloProps) {
   // círculo, ver cielo-horizonte.ts). Solo se recalcula al cambiar de
   // Observador; si la API falla, queda el terreno procedural (null).
   const [perfilCielo, setPerfilCielo] = useState<PerfilCielo | null>(null);
+
+  // Gating del gasto (issue #61): el resto del círculo (la parte que solo
+  // pinta paisaje) no se pide hasta que el canvas GL haya asomado al
+  // viewport. Cerrojo de un solo sentido: una vez visto, visto — la
+  // petición es una por municipio y la caché absorbe el resto.
+  const [cieloVisto, setCieloVisto] = useState(false);
   useEffect(() => {
-    let cancelado = false;
+    const contenedor = contenedorRef.current;
+    if (!contenedor || typeof IntersectionObserver === "undefined") {
+      // Sin observer (navegador antiguo): mejor el paisaje real que ahorrar.
+      setCieloVisto(true);
+      return;
+    }
+    const observer = new IntersectionObserver((entradas) => {
+      if (entradas.some((entrada) => entrada.isIntersecting)) {
+        setCieloVisto(true);
+        observer.disconnect();
+      }
+    });
+    observer.observe(contenedor);
+    return () => observer.disconnect();
+  }, []);
+
+  // Al cambiar de Observador, el perfil anterior deja de valer aunque la
+  // petición del nuevo esté gateada (nunca pintar el relieve de otro sitio).
+  useEffect(() => {
     setPerfilCielo(null);
+  }, [engine, circ, observador.lat, observador.lon]);
+
+  useEffect(() => {
+    // El perfil de 360° solo se pide con el render WebGL activo y visible
+    // (issue #61): el fallback 2D no lo usa, y sin asomar al viewport no
+    // hay nada que pintar. El sector del panel no pasa por aquí.
+    if (modoRender !== "gl" || !cieloVisto) return;
+    let cancelado = false;
     const acimutC1 = engine.sunMoonPositions(circ.c1.instante).sol.acimut;
     const acimutC4 = engine.sunMoonPositions(circ.c4.instante).sol.acimut;
     fetchPerfilCielo(
@@ -232,7 +264,7 @@ export default function VistaCielo({ observador = FERROL }: VistaCieloProps) {
     return () => {
       cancelado = true;
     };
-  }, [engine, circ, observador.lat, observador.lon]);
+  }, [engine, circ, observador.lat, observador.lon, modoRender, cieloVisto]);
 
   // --- Cuerpos del domo (GL): cacheados por segundo simulado --------------
   const domoCacheRef = useRef<{ clave: number; cuerpos: CuerpoDomo[] }>({

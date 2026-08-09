@@ -11,7 +11,8 @@
  * - Navegaciones y estáticos de `/_next/` → stale-while-revalidate (la caché
  *   dinámica va recogiendo los chunks que Next descubre en runtime).
  * - Chunk de municipios (~620 KB, inmutable por hash) → cache-first.
- * - api.open-meteo.com → network-first con fallback al último dato cacheado.
+ * - api.open-meteo.com → network-first con fallback al último dato cacheado
+ *   (salvo /v1/elevation, que no pasa por el SW: su caché es de aplicación).
  * - basemaps.cartocdn.com (estilo, teselas, glifos) → cache-first con límite
  *   de ~200 entradas y purga simple de las más antiguas.
  *
@@ -178,6 +179,11 @@ self.addEventListener("fetch", (evento) => {
   }
 
   if (url.hostname === "api.open-meteo.com") {
+    // La elevación NO se cachea en el SW: su caché es de aplicación
+    // (localStorage por municipio, lib/horizonte.ts, issue #61). Además la
+    // API devuelve sus fallos de límite como HTTP 200 con error:true —
+    // cachearlos aquí serviría errores "frescos" para siempre.
+    if (url.pathname.startsWith("/v1/elevation")) return;
     evento.respondWith(networkFirst(peticion, CACHE_METEO));
     return;
   }

@@ -6,33 +6,40 @@
  * El paneo de la Vista Cielo recorre 360° de acimut, pero el perfil del
  * panel solo cubre el sector del eclipse (±20° del recorrido del sol, paso
  * 2°). Este módulo amplía el muestreo al resto del círculo con paso mayor
- * (8°, un cuarto de radios: allí solo hay paisaje, no veredicto) y funde
+ * (12°, menos radios: allí solo hay paisaje, no veredicto) y funde
  * ambas mitades en un perfil por grado de acimut — alturas angulares
  * suavizadas y máscara de mar — listo para subirse al shader del terreno
  * como textura 1D (`lib/cielo-gl.ts`).
  *
- * ## Presupuesto de peticiones (límite medido en #43: ~600 coords/min)
+ * ## Presupuesto de peticiones (límite medido en #43: ~600 coords/min;
+ * ## además la API tiene límite HORARIO, ver `ErrorSaturacionElevacion`)
  *
- * Por Observador nuevo, contra Open-Meteo Elevation (lotes de ≤ 100):
+ * Por Observador nuevo, contra Open-Meteo Elevation (lotes de ≤ 100).
+ * Para el eclipse real el sector C1→C4 ± 20° son 27–30 acimuts (medido
+ * sobre municipios de toda España el 09-08-2026):
  *
- * - Sector del eclipse: 1 + ~26 acimuts × 16 radios ≈ 417 coordenadas →
- *   5 peticiones. **Compartidas con el panel**: es la misma promesa
+ * - Sector del eclipse: 1 + ≤30 acimuts × 9 radios ≤ 271 coordenadas →
+ *   **3 peticiones**. Compartidas con el panel: es la misma promesa
  *   cacheada de `fetchPerfilHorizonte`, nunca se piden dos veces.
- * - Resto del círculo: ~38 acimuts × 4 radios ≈ 152 coordenadas →
- *   2 peticiones más, en secuencia tras el sector.
+ * - Resto del círculo: ≤25 acimuts × 4 radios ≤ 100 coordenadas →
+ *   **1 petición** más, en secuencia tras el sector.
  *
- * Total ≈ 570 coordenadas en 7 peticiones: cabe entero en la ventana del
- * límite (verificado el 09-08-2026: con ~617 coordenadas la siguiente
- * petición ya recibe 429, y el reintento a los 30 s NO siempre libera la
- * ventana — por eso el presupuesto se queda por debajo del límite en vez
- * de confiar en el reintento; un paso de 5° con 8 radios lo desbordaba).
+ * Total ≤ 371 coordenadas en **≤ 4 peticiones por municipio nuevo**
+ * (issue #61) — apenas media ventana del límite por minuto, y el gasto
+ * horario baja a la mitad respecto a las 7 peticiones anteriores. El
+ * resto del círculo además solo se pide si el render WebGL está activo y
+ * visible (el llamante, `VistaCielo`, gatea la llamada): con el fallback
+ * 2D o sin llegar a ver el canvas, un municipio cuesta 3 peticiones.
  * En el caso normal el perfil completo llega en segundos; si aun así la
  * API limita o falla (offline), la Vista Cielo mantiene su terreno
- * procedural. El resultado se cachea por Observador: volver al mismo
- * municipio no repite ninguna petición.
+ * procedural. El resultado se cachea por Observador en memoria y de forma
+ * persistente (`lib/almacen-local.ts`, sin caducidad): volver al mismo
+ * municipio — incluso tras recargar — no repite ninguna petición.
  */
 
+import { guardarAlmacen, leerAlmacen } from "./almacen-local";
 import {
+  claveDePerfil,
   esAcimutMarino,
   fetchElevaciones,
   fetchPerfilHorizonte,
@@ -45,18 +52,24 @@ import {
   type PuntoGeo,
 } from "./horizonte";
 
-/** Paso entre acimuts fuera del sector del eclipse (grados): solo paisaje. */
-export const PASO_ACIMUT_RESTO = 8;
+/**
+ * Paso entre acimuts fuera del sector del eclipse (grados): solo paisaje.
+ * Era 8°; con 12° el resto del círculo de un municipio real cabe en una
+ * única petición de ≤ 100 coordenadas (issue #61) y el suavizado + la
+ * interpolación por grado siguen dando una silueta continua.
+ */
+export const PASO_ACIMUT_RESTO = 12;
 
 /**
- * Radios de muestreo fuera del sector del eclipse, en km: un cuarto de
- * `RADIOS_KM`, cubriendo de 1 a ~23 km. El paisaje de espaldas al eclipse
- * no decide ningún veredicto y el suavizado de la silueta absorbe la
- * pérdida de precisión; a cambio, el presupuesto total cabe en la ventana
- * del límite de la API (ver cabecera). Cuatro radios bastan además para
- * la máscara de mar (3/4 marinos ≥ el umbral de 0,7 de `esAcimutMarino`).
+ * Radios de muestreo fuera del sector del eclipse, en km: un subconjunto
+ * de `RADIOS_KM` cubriendo de 1 a ~25 km. El paisaje de espaldas al
+ * eclipse no decide ningún veredicto y el suavizado de la silueta absorbe
+ * la pérdida de precisión; a cambio, el presupuesto total cabe en la
+ * ventana del límite de la API (ver cabecera). Cuatro radios bastan además
+ * para la máscara de mar (3/4 marinos ≥ el umbral de 0,7 de
+ * `esAcimutMarino`).
  */
-export const RADIOS_KM_RESTO = [1, 2.9, 8.1, 22.9] as const;
+export const RADIOS_KM_RESTO = [1, 2.7, 7.4, 25.5] as const;
 
 /** Muestras del perfil fundido: una por grado de acimut. */
 export const GRADOS_PERFIL = 360;
@@ -157,8 +170,9 @@ export function alturaPerfil(valores: Float32Array, acimut: number): number {
 }
 
 /**
- * Funde el sector del eclipse (paso 2°) y el resto del círculo (paso 5°)
- * en el perfil por grado de acimut que consume el render:
+ * Funde el sector del eclipse (paso 2°) y el resto del círculo (paso
+ * {@link PASO_ACIMUT_RESTO}) en el perfil por grado de acimut que consume
+ * el render:
  *
  * - Altura: el ángulo de obstrucción recortado a ≥ 0 (el recorte es de
  *   presentación, ver `anguloObstruccion`), interpolado linealmente entre
@@ -224,8 +238,41 @@ export function texturaPerfil(perfil: PerfilCielo): Uint8Array {
   return datos;
 }
 
-/** Caché de perfiles completos por Observador y sector (como en horizonte). */
+/** Caché en memoria de perfiles completos por Observador y sector. */
 const cachePerfilesCielo = new Map<string, Promise<PerfilCielo>>();
+
+/**
+ * Prefijo de la caché persistente del perfil de 360°. La versión va en la
+ * clave: súbela si cambia {@link PerfilCielo} o el muestreo del resto
+ * ({@link PASO_ACIMUT_RESTO}, {@link RADIOS_KM_RESTO}).
+ */
+const PREFIJO_CIELO_PERSISTIDO = "eclipse.cielo.v1|";
+
+/** Forma persistida del perfil: arrays JSON redondeados (~7 KB por clave). */
+interface PerfilCieloPersistido {
+  alturas: number[];
+  mar: number[];
+}
+
+/** Redondeo a 3 decimales: 0,001° sobra para una silueta suavizada. */
+function compactar(valores: Float32Array): number[] {
+  return Array.from(valores, (v) => Math.round(v * 1000) / 1000);
+}
+
+function esPerfilCieloPersistidoValido(
+  valor: unknown,
+): valor is PerfilCieloPersistido {
+  if (typeof valor !== "object" || valor === null) return false;
+  const perfil = valor as PerfilCieloPersistido;
+  return (
+    Array.isArray(perfil.alturas) &&
+    perfil.alturas.length === GRADOS_PERFIL &&
+    Array.isArray(perfil.mar) &&
+    perfil.mar.length === GRADOS_PERFIL &&
+    perfil.alturas.every((v) => typeof v === "number") &&
+    perfil.mar.every((v) => typeof v === "number")
+  );
+}
 
 /**
  * Perfil real de 360° del Observador para la Vista Cielo. Primero espera
@@ -233,28 +280,48 @@ const cachePerfilesCielo = new Map<string, Promise<PerfilCielo>>();
  * panel (`fetchPerfilHorizonte`), así que esas peticiones jamás se
  * duplican — y después muestrea el resto del círculo con paso
  * {@link PASO_ACIMUT_RESTO} y radios {@link RADIOS_KM_RESTO} (presupuesto
- * completo en la cabecera del módulo).
+ * completo en la cabecera del módulo). El llamante debe pedirlo solo con
+ * el render WebGL activo y visible: es la mitad del ahorro del issue #61.
  *
- * Se cachea por Observador y sector; un fallo de red no envenena la caché
- * (se reintenta al volver a montar la vista) y el llamante degrada al
- * terreno procedural.
+ * Se cachea por Observador y sector, en memoria y de forma persistente
+ * (sin caducidad — el relieve no cambia): volver a un municipio ya medido,
+ * incluso tras recargar, no toca la red. Un fallo de red no envenena
+ * ninguna caché (se reintenta al volver a montar la vista) y el llamante
+ * degrada al terreno procedural.
  */
 export function fetchPerfilCielo(
   observador: PuntoGeo,
   acimutSolC1: number,
   acimutSolC4: number,
 ): Promise<PerfilCielo> {
-  const clave = [
-    observador.lat.toFixed(4),
-    observador.lon.toFixed(4),
-    Math.round(acimutSolC1),
-    Math.round(acimutSolC4),
-  ].join("|");
+  const clave = claveDePerfil(observador, acimutSolC1, acimutSolC4);
 
   const cacheado = cachePerfilesCielo.get(clave);
   if (cacheado) return cacheado;
 
-  const promesa = calcularPerfilCielo(observador, acimutSolC1, acimutSolC4);
+  const persistido = leerAlmacen<PerfilCieloPersistido>(
+    PREFIJO_CIELO_PERSISTIDO + clave,
+  );
+  if (esPerfilCieloPersistidoValido(persistido)) {
+    const promesa = Promise.resolve<PerfilCielo>({
+      alturas: Float32Array.from(persistido.alturas),
+      mar: Float32Array.from(persistido.mar),
+    });
+    cachePerfilesCielo.set(clave, promesa);
+    return promesa;
+  }
+
+  const promesa = calcularPerfilCielo(
+    observador,
+    acimutSolC1,
+    acimutSolC4,
+  ).then((perfil) => {
+    guardarAlmacen(PREFIJO_CIELO_PERSISTIDO + clave, {
+      alturas: compactar(perfil.alturas),
+      mar: compactar(perfil.mar),
+    } satisfies PerfilCieloPersistido);
+    return perfil;
+  });
   cachePerfilesCielo.set(clave, promesa);
   promesa.catch(() => cachePerfilesCielo.delete(clave));
   return promesa;
